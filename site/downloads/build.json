@@ -1,0 +1,31 @@
+{
+  "source_revision": "v0.1.0",
+  "built_utc": "2026-10-17T22:07:51.822001+00:00",
+  "seed": 271828,
+  "python": "3.14.7",
+  "dependencies": {
+    "numpy": "2.5.3",
+    "scipy": "1.18.1",
+    "pandas": "3.0.6",
+    "scikit-learn": "1.9.1",
+    "plotly": "7.1.0"
+  },
+  "sha256": {
+    "analysis/build_site.py": "c1f4dfd804c76197608cc16fc44d9d35ddc7aea1317d6dab631898fc9006a611",
+    "analysis/data.py": "cabcadfe069e51340ce0248fa50b4bf643457104c48d17be4bc71b82bff0c728",
+    "analysis/models.py": "1fd7b06d45666f4c9a188f45f61ea9f02e0b96e350b972dacb22e9778c1bcb68",
+    "analysis/__init__.py": "32c47c8f27b59b929fbce25c8c70d144fceb99bbe684ae134a29acc68c2725a9",
+    "site/app.js": "544c3a04aa30cce023581c7c87d65a1ece7d5f4233ef4c0b0fa898de059e6d8a",
+    "site/scenario.js": "1d49d6e2930c85567d11e661e523aeccbebc9d696a7be93c4015b413f584089d",
+    "site/index.html": "2071dc02928f96515f1e8f085c1de3b617bdbfec6a1ed96c185e10b0eca02270",
+    "site/style.css": "85f15770d770948712d446ee276e398c9eef529a2a85fb0250af4fb46d2664cf",
+    "config.json": "1383aa332209f1132b0a6dfe5cb86643f613cffe957e15f6766cfb3e2c4ec1e1",
+    "requirements.txt": "f75f6a70f44e60462a620d6bf18a0bae2e5771736be26d90f91b85c4d0bb3cb8",
+    "data/processed/panel.csv": "ff281636a8d8041098e36d8923e44a3c38f30ee255af5659cb2d086c7c42de48",
+    "data/processed/predictions.csv": "ab53b7d5e2c617f18a9cb128882ccd110321574566b5a2ccbafb83571f7a2eaa",
+    "data/processed/calibration.csv": "6a4e87c54a0da769837909d7e86e1cfa564f8560c448636e6410a36c1684d26c",
+    "data/processed/metrics.json": "536c861ab8e9af11833f12d86f0c66383f80936fc4b135c3bc61e71702f31ea1",
+    "data/processed/paired.json": "65054e4bb8b9a08c8a06b9fed699f380622332a3e1734d50ce96d9d907f6a00e",
+    "data/processed/manifest.json": "afbc4f6fdcaaaf33d5ad596a7dcac760fea5586406a9752c6ba64787b382f9db"
+  }
+}

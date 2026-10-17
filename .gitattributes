@@ -1,0 +1,3 @@
+# Preserve exact source/result bytes recorded in artifacts/build.json.
+* -text
+site/vendor/** -whitespace linguist-vendored

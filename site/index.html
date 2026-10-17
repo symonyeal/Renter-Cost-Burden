@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="A reproducible regional study of growth, commuting, and renter affordability. Challenge the predictions, sources, and validation choices.">
+  <title>The Prosperity Gap — Growth, for whom?</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="style.css">
+  <script defer src="vendor/plotly-4.1.1.min.js"></script>
+  <script defer src="scenario.js"></script><script defer src="app.js"></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to research</a>
+<header><a class="brand" href="#main">THE PROSPERITY GAP<span> A RESEARCH INSTRUMENT</span></a>
+<nav aria-label="Sections"><a href="#evidence">Evidence</a><a href="#places">Places</a><a href="#workers">Workers</a><a href="#models">Models</a><a href="#ablation">Ablations</a><a href="#scenario">Scenarios</a><a href="#methods">Methods</a></nav></header>
+<main id="main">
+<div id="status" role="status">Loading published research results…</div>
+<div class="hero">
+  <div><p class="eyebrow">LOCAL GROWTH · RENTAL PRESSURE · MODEL CHOICE</p>
+    <h1>The Prosperity<br><em>Gap.</em></h1><p class="subtitle">Can local growth predict a better life for renters?</p>
+    <p id="finding" class="finding">Reading the held-out evidence.</p>
+    <p class="note">30 counties. Three states. Real public data. A pseudo-real-time backtest with an explicit information clock.</p>
+    <a class="button" href="#models">Inspect the predictions <span aria-hidden="true">↗</span></a>
+  </div>
+  <div class="hero-evidence"><p class="eyebrow">THE FIRST TEST: BEAT PERSISTENCE</p><h2 id="heroTitle">Does more information reduce error?</h2>
+    <div id="heroChart" class="chart short" aria-label="Final temporal mean absolute error by model"></div>
+    <p class="note">2023–2024 final temporal test · 60 county-targets · fitted models use all sources · county-equal MAE, percentage points. Shorter is better. Persistence carries forward the latest published burden. Sources: ACS, QCEW, LODES, CPI-U.</p>
+    <div id="heroMetrics" class="facts"></div>
+  </div>
+</div>
+<div class="research-strip"><span>01 / OBSERVE</span><p>Growth at a workplace and prosperity in a household are different measurements.</p><span>NO CAUSAL CLAIMS</span></div>
+
+<section id="evidence"><div class="section-head"><div><p class="eyebrow">01 / EXPLORE THE EVIDENCE</p><h2>Where do jobs and rental pressure move together?</h2></div><p class="note">A descriptive association. Housing growth colours each point; a county selection links the views below.</p></div>
+<div class="controls"><label>Target year<select id="evidenceYear"></select></label><label>State<select id="region"><option value="all">All three states</option><option value="08">Colorado</option><option value="25">Massachusetts</option><option value="53">Washington</option></select></label><label class="wide">Search a county<input id="search" type="search" placeholder="County or state name"></label><label>Selected county<select id="county"></select></label><button id="reset">Reset study views</button></div>
+<div class="two"><div class="panel"><div id="map" class="county-map" aria-label="County boundary map, separate state insets"></div><p class="note">Official Census TIGER boundaries; state insets have independent scales. Colour is annualized housing-stock growth, centred on zero. Unshaded counties are filtered out; counties beyond the 30-county sample are not drawn. Pan the map on narrow screens.</p></div><div class="panel"><div id="scatter" class="chart"></div><p id="evidenceNote" class="note"></p></div></div>
+<div id="countyDetail" class="county-detail" aria-live="polite"></div>
+<details><summary>Accessible evidence table</summary><div id="evidenceTable" class="table-wrap"></div></details>
+</section>
+
+<section id="places"><div class="section-head"><div><p class="eyebrow">02 / COMPARE PLACES</p><h2>Workplace gains do not measure resident gains.</h2></div><p class="note">Compare at most three counties. Economic paths are indexed to each county's 2011 value; burden is shown separately in percentage points.</p></div>
+<div class="controls" id="compareControls"></div><div id="compareCharts" class="grid-charts"></div><p class="note">Sources: QCEW jobs and average pay at workplaces; ACS median renter household income, housing units and burden. Monetary quantities use annual-average CPI-U, 2023 dollars. All indexed panels share a scale. ACS 2020 is a gap, with no interpolation. Approximate 90% ACS sampling margins appear on burden; they are not prediction intervals.</p>
+<details><summary>Selected county annual measurements</summary><div id="placesTable" class="table-wrap"></div></details>
+</section>
+
+<section id="workers"><div class="section-head"><div><p class="eyebrow">03 / FOLLOW THE WORKERS</p><h2>A county's jobs and residents cross its borders.</h2></div><p class="note">LODES primary jobs (JT01). Administrative home-work relationships, not observed daily trips.</p></div>
+<div class="controls"><label>LODES reference year<select id="flowYear"></select></label><label>Relationships<select id="flowDirection"><option value="destinations">Where residents work</option><option value="origins">Where workers live</option></select></label></div>
+<div id="flowFacts" class="facts"></div><div class="two"><div id="flows" class="chart"></div><div id="flowTable" class="table-wrap"></div></div><p class="note">Within-state destinations are ranked from main OD files. WAC/RAC totals include interstate relationships; their residual is shown separately as outside-state / unranked. Individual interstate destinations and full destination concentration are unavailable.</p>
+</section>
+
+<section id="models"><div class="section-head"><div><p class="eyebrow">04 / COMPARE THE MODELS</p><h2>Generalization is the result that counts.</h2></div><p class="note">Every point is held out in time. Geographic transfer also excludes an entire state from fitting. Test errors remain visible when a model loses.</p></div>
+<div class="controls"><label>Evaluation<select id="regime"><option value="temporal">Temporal forecasting</option><option value="holdout_08">Transfer: Colorado held out</option><option value="holdout_25">Transfer: Massachusetts held out</option><option value="holdout_53">Transfer: Washington held out</option></select></label><label>Model<select id="model"><option value="linear">Regularized panel regression</option><option value="trees">Gradient-boosted trees</option><option value="persistence">Persistence</option></select></label><label>Target period<select id="modelYear"><option value="final">2023–2024 final test</option><option value="all">All held-out years</option></select></label><label>Weighting<select id="weight"><option value="equal">County equal</option><option value="renters">Origin renter households</option></select></label><label>Diagnostic subset<select id="stratum"><option value="all">All eligible counties</option><option value="large">Larger population at origin</option><option value="small">Smaller population at origin</option><option value="high">Higher initial burden</option><option value="low">Lower initial burden</option><option value="reliable">Smaller ACS sampling margin</option><option value="noisy">Larger ACS sampling margin</option></select></label></div>
+<div id="scores" class="facts" aria-live="polite"></div><div class="two"><div id="predictions" class="chart"></div><div id="residuals" class="chart"></div></div><p id="modelNote" class="note"></p>
+<div class="two"><div><h3>Where the model fails</h3><div id="worst" class="table-wrap"></div></div><div><h3>Historical calibration, not a guarantee</h3><p id="intervalNote"></p><p class="note">Empirical nominal coverage: 80%. Earlier out-of-sample residuals only, with label availability checked. Temporal and spatial dependence can weaken calibration. Blank intervals mean fewer than 30 available calibration errors.</p><div id="yearScores" class="table-wrap"></div></div></div>
+</section>
+
+<section id="ablation"><div class="section-head"><div><p class="eyebrow">05 / REMOVE A DATA SOURCE</p><h2>Information has to earn its place.</h2></div><p class="note">These are separately trained models. Removing commuting selects a fit that never saw commuting inputs. The current evaluation, period and weighting above apply here.</p></div>
+<div class="controls"><label>Experiment<select id="experiment"><option value="all">All four groups</option><option value="employment">Core + housing + employment</option><option value="housing">Core + housing</option><option value="core">Core history only</option><option value="no_housing">All except housing</option><option value="no_employment">All except employment</option></select></label><button id="commutingToggle" aria-pressed="true">Commuting: included</button></div>
+<div class="two"><div id="ablations" class="chart"></div><div class="ablation-copy"><h3 id="ablationHeadline"></h3><p id="pairedNote"></p><div id="ablationTable" class="table-wrap"></div><p class="note">Paired uncertainty below compares all groups with employment-only on the final 2023–2024 block. An 80% county-cluster bootstrap preserves years within county, but not common state shocks. Only three independent states are observed.</p></div></div>
+</section>
+
+<section id="scenario"><div class="section-head"><div><p class="eyebrow">06 / STRESS-TEST ASSUMPTIONS</p><h2>Change an input. Watch two models disagree.</h2></div><p class="note">Start from the selected county's observed inputs at origin 2023, targeting 2024. Conditional model predictions; no causal interpretation.</p></div>
+<div class="two"><div id="scenarioInputs" class="panel"></div><div class="scenario-result"><p class="eyebrow">CONDITIONAL PREDICTED BURDEN</p><div id="scenarioResults" class="facts" aria-live="polite"></div><p id="support" role="status"></p><p class="note">Exact exported coefficients and tree splits; no response-grid approximation. All other features stay at their observed values. Rent and income changes also update their growth features. Dashed lines mark observed county burden.</p><div id="scenarioChart" class="chart short"></div><button id="scenarioReset">Restore observed inputs</button></div></div>
+<div class="calculator"><div><p class="eyebrow">A SEPARATE HOUSEHOLD CALCULATOR</p><h3>Transparent arithmetic, household by household.</h3><p class="note">Share in year k = 12 × monthly cost × (1 + cost growth)<sup>k</sup> / [annual income × (1 + income growth)<sup>k</sup>]. These are assumed household quantities, not county predictions.</p></div><div><div class="controls"><label>Annual household income ($)<input id="calcIncome" type="number" min="1" value="60000"></label><label>Monthly gross housing cost ($)<input id="calcCost" type="number" min="0" value="1800"></label><label>Annual income growth (%)<input id="calcIncomeGrowth" type="number" min="-99" value="3"></label><label>Annual cost growth (%)<input id="calcCostGrowth" type="number" min="-99" value="5"></label></div><div id="calcOutput" aria-live="polite"></div></div></div>
+</section>
+
+<section id="methods"><div class="section-head"><div><p class="eyebrow">07 / METHODS & EVIDENCE</p><h2>The clock is part of the model.</h2></div><p class="note">A reproducible study should make its exclusions, assumptions and failures as inspectable as its best result.</p></div>
+<div class="timeline"><div><b>2019</b><span>LODES primary jobs</span><small>4-year conservative lag</small></div><div><b>2021</b><span>QCEW jobs & pay</span><small>2-year conservative lag</small></div><div><b>2022</b><span>Latest ACS burden</span><small>1-year release lag</small></div><div class="origin"><b>31 DEC 2023</b><span>Fit & predict</span><small>Labels through 2022</small></div><div><b>2024</b><span>Target burden</span><small>Two-year burden change</small></div></div>
+<div class="two"><div><h3>What the target measures</h3><p>Renter households spending at least 30% of household income on gross rent, among households with a computable ratio. ACS B25070 categories 007–010 divided by total minus “not computed.” A ratio of medians is a different statistic.</p><h3>Three kinds of uncertainty</h3><p>ACS margins describe sampling uncertainty. Residual-calibrated intervals describe prediction uncertainty under historical conditions. Ablations, held-out states and scenarios describe sensitivity to assumptions. These answer different questions.</p></div><div><h3>What this study cannot establish</h3><p>Thirty populous counties in three selected states do not represent the United States. Current revised downloads do not reconstruct historical vintages. Three geographic groups provide limited independent evidence. No model here identifies a causal effect of growth on rent.</p><p>More states, archived vintages, richer demographic controls and independent future years could change the conclusion. ACS 2020 remains missing. Rental vacancy and full interstate destination rankings are excluded.</p></div></div>
+<details><summary>Feature dictionary and mathematical objective</summary><div id="dictionary" class="table-wrap"></div><p>Minimize Σ(y − a − z′β − γ<sub>county</sub>)² + λ(‖β‖² + ‖γ‖²). Predict an unseen county with γ = 0. All imputation and scaling use fitting rows only. No future-year categorical effect is fitted.</p><p>Boosting: 80 iterations, learning rate 0.06, L2 = 10, minimum leaf size 15; tune 3 or 7 leaves on earlier temporal folds. Ridge λ ∈ {1, 10, 100}. All outputs clipped to [0,100].</p></details>
+<details><summary>Coverage, exclusions and source provenance</summary><p id="coverageText"></p><div id="sourceTable" class="table-wrap"></div></details>
+<div class="downloads"><h3>Take the evidence with you.</h3><p>Public source estimates, predictions, fold memberships and methods. Raw bulk files stay outside version control.</p><div><a href="downloads/FINDINGS.md" download>Findings ↗</a><a href="downloads/METHODS.md" download>Methods ↗</a><a href="downloads/COVERAGE.md" download>Coverage audit ↗</a><a href="downloads/panel.csv" download>Analysis panel CSV ↗</a><a href="downloads/acs.csv" download>ACS estimates & margins ↗</a><a href="downloads/predictions.csv" download>Held-out predictions ↗</a><a href="downloads/fits.json" download>Fits & feature lists ↗</a><a href="downloads/manifest.json" download>Source checksums ↗</a><a href="downloads/SOURCES.md" download>Source documentation ↗</a></div></div>
+</section>
+<footer><b>THE PROSPERITY GAP</b><p>A methods showcase, not a housing forecast service.<br>Sources: US Census Bureau ACS & LODES · BLS QCEW · FRED CPI-U.<br>Research build · October 2026 · 2023 monetary base year</p><a href="#main">Back to the evidence ↑</a></footer>
+</main>
+</body></html>

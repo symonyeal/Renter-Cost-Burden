@@ -1,0 +1,8 @@
+__pycache__/
+.ruff_cache/
+.pytest_cache/
+data/raw/
+artifacts/*.pkl
+node_modules/
+qa/*.png
+qa/browser.json

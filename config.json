@@ -1,0 +1,24 @@
+{
+  "states": {"co": ["08", "Colorado"], "ma": ["25", "Massachusetts"], "wa": ["53", "Washington"]},
+  "sample_year": 2011,
+  "counties_per_state": 10,
+  "acs_years": [2011, 2024],
+  "base_year": 2023,
+  "seed": 271828,
+  "lags": {"acs": 1, "qcew": 2, "lodes": 4},
+  "lodes_first_release": {"25": 2016},
+  "target_years": [2014, 2024],
+  "evaluation_years": [2017, 2018, 2019, 2021, 2022, 2023, 2024],
+  "final_test_years": [2023, 2024],
+  "interval_coverage": 0.8,
+  "direction_tolerance": 0.5,
+  "groups": {
+    "core": ["latest", "burden_change", "log_population"],
+    "housing": ["real_rent", "real_income", "rent_growth", "income_growth", "housing_growth"],
+    "employment": ["job_growth", "pay_growth", "goods_share", "services_share"],
+    "commuting": ["inbound", "outbound"]
+  },
+  "ridge_grid": [1, 10, 100],
+  "tree_grid": [3, 7],
+  "paths": {"raw": "data/raw", "processed": "data/processed", "models": "artifacts", "site": "site"}
+}
