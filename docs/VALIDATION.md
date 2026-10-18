@@ -35,9 +35,13 @@ exercise a repository subpath. It measured:
 Desktop, mobile hero and mobile model screenshots were inspected. The mobile hero was compacted
 so its supported finding, complete evidence-bearing chart and explanation fit in the first view.
 Browser QA shuts down its owned HTTP server and browser after completion.
-The delivered `serve.cmd` command was also launched: index, JSON, pinned Plotly and prediction
-CSV all returned HTTP 200 on port 8765. The `.ps1` alternative is blocked by local execution
-policy; use CMD as documented.
+### Maintenance rerun, 2026-10-17
+
+After the refactor, `python -m analysis` rebuilt everything from the raw cache. Every file in
+`data/processed/` and `artifacts/fits.json`/`scenarios.json` matched the previous release byte
+for byte after CRLF→LF normalization (previously, re-reading cached QCEW CSVs perturbed the last
+float digit; they are now parsed round-trip). Integrity suite: 9 passed. JS/Python predictor:
+180 cases, maximum difference 2.34e-10 pp. Browser QA: all 12 checks passed, no console errors.
 
 ## Not measured / material limits
 

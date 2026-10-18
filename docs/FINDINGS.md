@@ -1,4 +1,4 @@
-# Findings — 2026-10-17
+# Findings
 
 Persistence beats both all-source fitted models, with final temporal MAE 2.855 pp. This is a small regional pseudo-real-time backtest,
 not evidence of a causal effect or national generalization.
@@ -16,7 +16,6 @@ county-targets in 2023–2024. Earlier development targets remain separately lab
 Commuting contribution (all minus employment-only MAE; negative favours commuting):
 
 - linear: 0.141 pp, 80% county-cluster interval [0.113, 0.170], 30 clusters; contradicts a gain within this sample.
-
 - trees: -0.096 pp, 80% county-cluster interval [-0.184, -0.010], 30 clusters; supports a gain within this sample.
 
 ## Feature-group comparisons
@@ -37,7 +36,9 @@ Commuting contribution (all minus employment-only MAE; negative favours commutin
 | no_housing | linear | 3.685 |
 | no_housing | trees | 3.089 |
 
-Housing/history regression has MAE 2.770 pp; adding employment raises it to 3.459 pp. Removing employment from the full regression lowers error to 2.753 pp. More features are not uniformly useful.
+Housing/history regression has MAE 2.770 pp; adding employment raises it to
+3.459 pp. Removing employment from the full regression lowers error to
+2.753 pp.
 
 ## Does the commuting gain transfer?
 
@@ -50,20 +51,18 @@ Housing/history regression has MAE 2.770 pp; adding employment raises it to 3.45
 | Washington | linear | 1.043 | [0.187, 1.934] |
 | Washington | trees | 0.733 | [0.353, 1.161] |
 
-Commuting has model-dependent value; the primary all-source comparison does not establish
-a gain over persistence. Even a positive ablation needs independent states and future years.
-Intervals preserve
-within-county years but not common state shocks. Three independent geographic groups are few.
+Intervals preserve within-county years but not common state shocks. Three independent
+geographic groups are few; even a positive ablation needs independent states and future years.
 
 ## Evidence log
 
 - **Timing leakage:** contradicted by source/label eligibility certificates; archived vintage
   availability remains unverified. The conservative lags are assumptions.
-- **Supporting the rival that simple models suffice:** persistence beats both all-source models;
-  the housing-only linear experiment has a small lower error, so simplicity does not imply
-  persistence is optimal across every experiment.
-- **Commuting adds information:** mixed support in temporal evaluation (trees improve;
-  regression worsens), contradicted by positive point differences in every state transfer.
+- **Simple models suffice:** persistence beats both all-source models.
+  The housing-only linear experiment has lower error (2.770 pp)
+  than persistence (2.855 pp).
+- **Commuting adds information:** in temporal evaluation, commuting worsens linear, improves trees.
+  6 of 6 state transfers have a positive (unfavourable) point difference.
 - **Income/composition explains growth:** ablations test predictive substitution; population
   alone cannot remove demographic composition confounding. Causal explanation inconclusive.
 - **Pandemic dependence, inconclusive:** development and geographic filters expose sensitivity;

@@ -7,9 +7,9 @@ import time
 import urllib.request
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import urlencode, urlsplit
 
 import numpy as np
 import pandas as pd
@@ -18,9 +18,21 @@ ROOT = Path(__file__).resolve().parents[1]
 C = json.loads((ROOT / 'config.json').read_text())
 RAW = ROOT / C['paths']['raw']
 OUT = ROOT / C['paths']['processed']
+MID = ROOT / C['paths']['interim']
 ACS = 'https://www2.census.gov/programs-surveys/acs/summary_file'
 LODES = 'https://lehd.ces.census.gov/data/lodes/LODES8'
+TIGER = ('https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/State_County/'
+         'MapServer/1/query?')
 TABLES = ['B01003', 'B25001', 'B25064', 'B25119', 'B25070']
+
+
+def write(p, x):
+    """Write text, a DataFrame (CSV) or a JSON object with LF endings on every OS."""
+    if isinstance(x, pd.DataFrame):
+        x.to_csv(p, index=False, lineterminator='\n')
+    else:
+        p.write_text(x if isinstance(x, str) else json.dumps(x, indent=2), encoding='utf-8',
+                     newline='\n')
 
 
 def fetch(u):
@@ -35,12 +47,12 @@ def fetch(u):
                     b = r.read()
                     modified = r.headers.get('Last-Modified')
                 p.write_bytes(b)
-                p.with_suffix(p.suffix + '.json').write_text(json.dumps({
-                    'url': u, 'retrieved': datetime.now(timezone.utc).isoformat(),
+                write(p.with_suffix(p.suffix + '.json'), {
+                    'url': u, 'retrieved': datetime.now(UTC).isoformat(),
                     'last_modified': modified, 'bytes': len(b),
                     'sha256': hashlib.sha256(b).hexdigest(), 'cache': p.name,
                     'vintage': 'current download; not archived historical vintage',
-                }, indent=2))
+                })
                 break
             except OSError:
                 if k == 3:
@@ -51,7 +63,7 @@ def fetch(u):
 
 def source_manifest():
     """Reference periods and declared release lags supplement object-level retrieval metadata."""
-    rows = [json.loads(p.read_text()) for p in RAW.glob('*.json')]
+    rows = [json.loads(p.read_text()) for p in sorted(RAW.glob('*.json'))]
     for r in rows:
         u = r['url']
         source = ('ACS' if 'summary_file' in u else 'LODES8' if 'lehd.ces' in u
@@ -91,7 +103,7 @@ def old_acs(y):
     p = fetch(f'{doc}/geography/{fn}')
     book = pd.ExcelFile(p)
     out = []
-    for st, (fips, name) in C['states'].items():
+    for st, (_, name) in C['states'].items():
         sheet = next(s for s in book.sheet_names if s.lower() == st)
         g = pd.read_excel(book, sheet_name=sheet, dtype=str)
         g.columns = [str(c).strip().upper() for c in g.columns]
@@ -168,9 +180,9 @@ def qcew_row(d, y, fips):
 
 def old_qcew(y, fs):
     """Stream historical single-file archives; the API starts in 2014."""
-    dest = OUT / f'qcew-{y}.csv'
+    dest = MID / f'qcew-{y}.csv'
     if dest.exists():
-        d = pd.read_csv(dest, dtype={'fips': str})
+        d = pd.read_csv(dest, dtype={'fips': str}, float_precision='round_trip')
         if 'goods_share_suppressed' in d:
             return d.to_dict('records')
     p = fetch(f'https://data.bls.gov/cew/data/files/{y}/csv/{y}_annual_singlefile.zip')
@@ -181,17 +193,17 @@ def old_qcew(y, fs):
             pieces.append(d[d.area_fips.isin(fs) & d.industry_code.isin(['10', '101', '102'])])
     d = pd.concat(pieces)
     rows = [qcew_row(d[d.area_fips == f], y, f) for f in fs]
-    pd.DataFrame(rows).to_csv(dest, index=False)
+    write(dest, pd.DataFrame(rows))
     return rows
 
 
 def lodes(y, st, counties):
     """County primary jobs, LODES8 2020 blocks. WAC/RAC include interstate relationships."""
-    dest = OUT / f'lodes-{st}-{y}.json'
+    dest = MID / f'lodes-{st}-{y}.json'
     if dest.exists():
         return json.loads(dest.read_text())
     if st == 'ma' and y < 2011:
-        dest.write_text('[]')
+        write(dest, '[]')
         print('LODES documented coverage exclusion:', st, y, flush=True)
         return []
     totals = {}
@@ -203,7 +215,7 @@ def lodes(y, st, counties):
             a = a.add(s, fill_value=0)
         totals[typ] = a
     if totals['wac'].empty:
-        dest.write_text('[]')
+        write(dest, '[]')
         print('LODES has no workplace rows:', st, y, flush=True)
         return []
     p = fetch(f'{LODES}/{st}/od/{st}_od_main_JT01_{y}.csv.gz')
@@ -231,7 +243,7 @@ def lodes(y, st, counties):
                      'main_total': float(flows.sum()),
                      'wac_total': float(totals['wac'].sum()),
                      'rac_total': float(totals['rac'].sum())})
-    dest.write_text(json.dumps(rows))
+    write(dest, json.dumps(rows))
     print('LODES aggregate', st, y, len(rows), flush=True)
     return rows
 
@@ -239,16 +251,19 @@ def lodes(y, st, counties):
 def run():
     """Fetch and validate the fixed sample, preserving all raw published categories."""
     OUT.mkdir(parents=True, exist_ok=True)
+    MID.mkdir(parents=True, exist_ok=True)
     fetch(f'{ACS}/2023/table-based-SF/documentation/ACS20231YR_Table_Shells.txt')
     fetch(f'{LODES}/LODESTechDoc8.4.pdf')
+    fetch('https://lehd.ces.census.gov/doc/OnTheMapDataNotices.pdf')
     for st in C['states']:
         fetch(f'{LODES}/{st}/version.txt')
-    ys = [y for y in range(*[C['acs_years'][0], C['acs_years'][1] + 1]) if y != 2020]
+    y0, y1 = C['acs_years']
+    ys = [y for y in range(y0, y1 + 1) if y != 2020]
     print('ACS baseline', flush=True)
     a = acs_year(C['sample_year'])
     sample = pd.concat([a[a.fips.str.startswith(s[0])].nlargest(
         C['counties_per_state'], 'B01003_001') for s in C['states'].values()])
-    sample[['fips', 'name', 'B01003_001']].to_csv(OUT / 'sample.csv', index=False)
+    write(OUT / 'sample.csv', sample[['fips', 'name', 'B01003_001']])
     names = sample.set_index('fips')['name'].to_dict()
     fs = list(names)
     print('Fixed sample:', len(fs), names, flush=True)
@@ -274,13 +289,13 @@ def run():
                  ('rent', 'B25064_001'), ('income', 'B25119_003')]:
         d[c] = d[v].where(d[v] >= 0)
     d['acs_missing'] = d[['rent', 'income', 'population', 'housing']].isna().any(axis=1)
-    d.to_csv(OUT / 'acs.csv', index=False)
+    write(OUT / 'acs.csv', d)
     p = fetch('https://fred.stlouisfed.org/graph/fredgraph.csv?id=CPIAUCNS')
     cpi = pd.read_csv(p)
     cpi['year'] = pd.to_datetime(cpi.observation_date).dt.year
     cpi = cpi.groupby('year').CPIAUCNS.agg(['mean', 'count'])
     cpi = cpi[cpi['count'] == 12]['mean']
-    cpi.to_csv(OUT / 'cpi.csv')
+    write(OUT / 'cpi.csv', cpi.reset_index())
     print('QCEW county-year files', flush=True)
     q = []
     for y in range(2010, 2014):
@@ -289,15 +304,21 @@ def run():
     tasks = [(y, f) for y in range(2014, 2024) for f in fs]
     with ThreadPoolExecutor(8) as pool:
         q.extend(pool.map(lambda a: qcew(*a), tasks))
-    pd.DataFrame(q).to_csv(OUT / 'qcew.csv', index=False)
+    write(OUT / 'qcew.csv', pd.DataFrame(q))
     print('LODES chunks; raw downloads can exceed 1 GB', flush=True)
     tasks = [(y, st, [f for f in fs if f.startswith(v[0])])
              for y in range(2008, 2020) for st, v in C['states'].items()]
     with ThreadPoolExecutor(3) as pool:
         rows = list(pool.map(lambda a: lodes(*a), tasks))
-    (OUT / 'lodes.json').write_text(json.dumps([r for part in rows for r in part]))
+    write(OUT / 'lodes.json', json.dumps([r for part in rows for r in part]))
+    where = 'GEOID IN (' + ','.join(f"'{f}'" for f in fs) + ')'
+    geo = json.loads(fetch(TIGER + urlencode({
+        'where': where, 'outFields': 'GEOID,NAME,STATE', 'returnGeometry': 'true',
+        'outSR': '4326', 'maxAllowableOffset': '.015', 'f': 'geojson'})).read_text())
+    assert len(geo['features']) == len(fs)
+    write(OUT / 'counties.geojson', json.dumps(geo))
     manifest = source_manifest()
-    (OUT / 'manifest.json').write_text(json.dumps(manifest, indent=2))
+    write(OUT / 'manifest.json', manifest)
     print('Sources cached:', len(manifest), flush=True)
 
 

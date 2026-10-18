@@ -9,7 +9,7 @@ from sklearn.linear_model import Ridge
 from sklearn.preprocessing import StandardScaler
 from threadpoolctl import threadpool_limits
 
-from analysis.data import C, OUT, ROOT
+from analysis.data import OUT, ROOT, C, write
 
 GROUPS = C['groups']
 SETS = {'core': ['core'], 'housing': ['core', 'housing'],
@@ -75,9 +75,14 @@ def panel():
                 'inbound': h.inbound, 'outbound': h.outbound,
             })
     d = pd.DataFrame(rows)
-    d.to_csv(OUT / 'panel.csv', index=False)
-    (OUT / 'exclusions.json').write_text(json.dumps(exclusions, indent=2))
+    write(OUT / 'panel.csv', d)
+    write(OUT / 'exclusions.json', exclusions)
     return d
+
+
+def dummies(fips, counties):
+    """County indicator matrix; an unseen county has a zero row (pooled intercept)."""
+    return (np.asarray(fips)[:, None] == np.asarray(counties)).astype(float)
 
 
 def fit(d, features, model, alpha):
@@ -87,9 +92,8 @@ def fit(d, features, model, alpha):
     scale = StandardScaler().fit(A)
     A = scale.transform(A)
     counties = sorted(d.fips.unique())
-    B = np.array([[float(f == c) for c in counties] for f in d.fips])
     if model == 'linear':
-        m = Ridge(alpha=alpha).fit(np.c_[A, B], d.y)
+        m = Ridge(alpha=alpha).fit(np.c_[A, dummies(d.fips, counties)], d.y)
     else:
         m = HistGradientBoostingRegressor(
             max_leaf_nodes=alpha, max_iter=80, learning_rate=0.06,
@@ -103,8 +107,7 @@ def predict(m, d, features, model):
     estimator, imp, scale, counties = m
     A = scale.transform(imp.transform(d[features]))
     if model == 'linear':
-        B = np.array([[float(f == c) for c in counties] for f in d.fips])
-        A = np.c_[A, B]
+        A = np.c_[A, dummies(d.fips, counties)]
     return np.clip(estimator.predict(A), 0, 100)
 
 
@@ -116,10 +119,8 @@ def tune(d, features, model):
     val = d[d.target_year == y]
     if len(train) < 30:
         return grid[1]
-    errors = []
-    for alpha in grid:
-        m = fit(train, features, model, alpha)
-        errors.append(np.mean(abs(predict(m, val, features, model) - val.y)))
+    errors = [np.mean(abs(predict(fit(train, features, model, alpha), val, features, model)
+                          - val.y)) for alpha in grid]
     return grid[int(np.argmin(errors))]
 
 
@@ -131,7 +132,7 @@ def export_model(m, features, model):
     if model == 'linear':
         n = len(features)
         out.update(intercept=float(estimator.intercept_), beta=estimator.coef_[:n].tolist(),
-                   county=dict(zip(counties, estimator.coef_[n:].tolist())))
+                   county=dict(zip(counties, estimator.coef_[n:].tolist(), strict=False)))
     else:
         out['intercept'] = float(estimator._baseline_prediction[0, 0])
         out['trees'] = [[{c: (float(r[c]) if c in ('value', 'num_threshold') else int(r[c]))
@@ -177,121 +178,131 @@ def paired(d):
     return rows
 
 
+
+
+def radius(e):
+    """Interval half-width: empirical q-quantile ('higher') of n ≥ 30 earlier absolute errors."""
+    q = C['interval_coverage']
+    return float(np.quantile(e, q, method='higher')) if len(e) >= 30 else np.nan
+
+
+def record(r, regime, experiment, model, pred, rad, n, latest, train_latest):
+    """One held-out prediction with interval [pred − rad, pred + rad] ∩ [0, 100]."""
+    ok = np.isfinite(rad)
+    return r.to_dict() | {
+        'regime': regime, 'experiment': experiment, 'model': model, 'pred': pred,
+        'residual': pred - r.y, 'lo': max(0, pred - rad) if ok else np.nan,
+        'hi': min(100, pred + rad) if ok else np.nan, 'calibration_n': n, 'radius': rad,
+        'calibration_latest': latest, 'train_latest': train_latest,
+        'block': 'final test' if r.target_year in C['final_test_years'] else 'development'}
+
+
+def backtest(d, regime, state, experiment, features, model):
+    """Expanding window over evaluation years y, origin t = y − 1; state is held out if given.
+
+    Returns predictions, calibration residuals, fit records and the last fold (m, test, p)."""
+    rows, calibration, configs, history = [], [], [], []
+    for y in C['evaluation_years']:
+        t = y - 1
+        train = d[d.label_available <= t]
+        if state:
+            train = train[train.state != state]
+        test = d[d.target_year == y]
+        alpha = tune(train, features, model)
+        m = fit(train, features, model, alpha)
+        p = predict(m, test, features, model)
+        earlier = [h for h in history if h['available'] <= t]
+        rad = radius([h['error'] for h in earlier])
+        latest = max([h['available'] for h in earlier], default=0)
+        for (_, r), pred in zip(test.iterrows(), p, strict=False):
+            if r.state != state:
+                h = {'error': abs(pred - r.y), 'available': r.label_available,
+                     'fips': r.fips, 'target_year': y, 'state': r.state,
+                     'pred': float(pred), 'observed': r.y}
+                history.append(h)
+                calibration.append(h | {'regime': regime, 'experiment': experiment,
+                                        'model': model})
+            if not state or r.state == state:
+                rows.append(record(r, regime, experiment, model, float(pred), rad,
+                                   len(earlier), latest, int(train.label_available.max())))
+        tuning = train.target_year.max()
+        configs.append({'regime': regime, 'experiment': experiment, 'model': model,
+                        'target_year': y, 'alpha': alpha, 'features': features,
+                        'train_n': len(train), 'train_counties': sorted(train.fips.unique()),
+                        'tuning_target': int(tuning), 'tuning_origin': int(tuning) - 1,
+                        'tuning_train_targets': sorted(train[
+                            train.label_available <= tuning - 1].target_year.unique().tolist()),
+                        'train_targets': sorted(train.target_year.unique().tolist())})
+    return rows, calibration, configs, (m, test, p)
+
+
+def persistence(d, regime, state):
+    """Predict the latest burden; calibrate on earlier persistence errors, same eligibility."""
+    E = d[d.target_year.isin(C['evaluation_years'])]
+    rows = []
+    for _, r in (E[E.state == state] if state else E).iterrows():
+        cal = E[E.label_available <= r.origin]
+        if state:
+            cal = cal[cal.state != state]
+        rows.append(record(r, regime, 'all', 'persistence', r.latest,
+                           radius(abs(cal.y - cal.latest)), len(cal),
+                           int(cal.label_available.max()) if len(cal) else 0, 0))
+    return rows
+
+
+def scenario_cases(m, test, features, model):
+    """Python reference predictions at perturbed inputs, for the browser predictor check."""
+    cases = []
+    for k in [.9, 1.1]:
+        x = test.copy()
+        n = x.acs_year - x.acs_previous
+        for f, g in [('real_rent', 'rent_growth'), ('real_income', 'income_growth')]:
+            x[f] *= k
+            x[g] = 100 * ((1 + x[g] / 100) * k ** (1 / n) - 1)
+        x.job_growth += 2
+        x.housing_growth += 1
+        cases.extend({'row': r, 'pred': float(v)} for r, v in zip(
+            json.loads(x.to_json(orient='records')), predict(m, x, features, model), strict=False))
+    return cases
+
+
 def run():
     """Freeze origin-specific fits; no held-out outcome enters preprocessing or calibration."""
     d = panel()
-    rows, configs, scenarios, calibration = [], [], {}, []
+    rows, calibration, configs, scenarios = [], [], [], {}
     regimes = [('temporal', None)] + [(f'holdout_{s}', s) for s in sorted(d.state.unique())]
     for regime, state in regimes:
         for experiment, groups in SETS.items():
             features = [f for g in groups for f in GROUPS[g]]
             for model in ['linear', 'trees']:
-                history = []
-                for y in C['evaluation_years']:
-                    t = y - 1
-                    train = d[d.label_available <= t]
-                    if state:
-                        train = train[train.state != state]
-                    test = d[d.target_year == y]
-                    alpha = tune(train, features, model)
-                    m = fit(train, features, model, alpha)
-                    p = predict(m, test, features, model)
-                    cal = [r['error'] for r in history if r['available'] <= t]
-                    radius = (float(np.quantile(cal, C['interval_coverage'], method='higher'))
-                              if len(cal) >= 30 else np.nan)
-                    for (_, r), pred in zip(test.iterrows(), p):
-                        if not state or r.state != state:
-                            h = {'error': abs(pred - r.y), 'available': r.label_available,
-                                 'fips': r.fips, 'target_year': y, 'state': r.state,
-                                 'pred': float(pred), 'observed': r.y}
-                            history.append(h)
-                            calibration.append(h | {'regime': regime, 'experiment': experiment,
-                                                    'model': model})
-                        if state and r.state != state:
-                            continue
-                        a = r.to_dict()
-                        a.update(regime=regime, experiment=experiment, model=model,
-                                 pred=float(pred), residual=float(pred - r.y),
-                                 lo=max(0, pred - radius) if np.isfinite(radius) else np.nan,
-                                 hi=min(100, pred + radius) if np.isfinite(radius) else np.nan,
-                                 calibration_n=len(cal), radius=radius,
-                                 calibration_latest=max([h['available'] for h in history
-                                                         if h['available'] <= t], default=0),
-                                 train_latest=int(train.label_available.max()),
-                                 block=('final test' if y in C['final_test_years']
-                                        else 'development'))
-                        rows.append(a)
-                    configs.append({'regime': regime, 'experiment': experiment, 'model': model,
-                                    'target_year': y, 'alpha': alpha, 'features': features,
-                                    'train_n': len(train),
-                                    'train_counties': sorted(train.fips.unique()),
-                                    'tuning_target': int(train.target_year.max()),
-                                    'tuning_origin': int(train.target_year.max()) - 1,
-                                    'tuning_train_targets': sorted(train[
-                                        train.label_available <= train.target_year.max() - 1
-                                    ].target_year.unique().tolist()),
-                                    'train_targets': sorted(train.target_year.unique().tolist())})
-                    if regime == 'temporal' and experiment == 'all' and y == 2024:
-                        scenarios[model] = export_model(m, features, model)
-                        scenarios['reference_' + model] = p.tolist()
-                        cases = []
-                        for multiplier in [.9, 1.1]:
-                            x = test.copy()
-                            for f, g in [('real_rent', 'rent_growth'),
-                                         ('real_income', 'income_growth')]:
-                                x[f] *= multiplier
-                                n = x.acs_year - x.acs_previous
-                                x[g] = 100 * ((1 + x[g] / 100)
-                                              * multiplier ** (1 / n) - 1)
-                            x.job_growth += 2
-                            x.housing_growth += 1
-                            cases.extend([{'row': r, 'pred': float(v)} for r, v in zip(
-                                json.loads(x.to_json(orient='records')),
-                                predict(m, x, features, model))])
-                        scenarios['cases_' + model] = cases
+                r, c, f, (m, test, p) = backtest(d, regime, state, experiment, features, model)
+                rows += r
+                calibration += c
+                configs += f
+                if regime == 'temporal' and experiment == 'all':
+                    scenarios[model] = export_model(m, features, model)
+                    scenarios['reference_' + model] = p.tolist()
+                    scenarios['cases_' + model] = scenario_cases(m, test, features, model)
         print('Evaluated', regime, flush=True)
     for regime, state in regimes:
-        test = d[d.target_year.isin(C['evaluation_years'])]
-        if state:
-            test = test[test.state == state]
-        for _, r in test.iterrows():
-            # Earlier persistence errors, with the same label-availability condition.
-            cal = d[(d.target_year.isin(C['evaluation_years']))
-                    & (d.label_available <= r.origin)]
-            if state:
-                cal = cal[cal.state != state]
-            radius = (float(np.quantile(abs(cal.y - cal.latest), .8, method='higher'))
-                      if len(cal) >= 30 else np.nan)
-            a = r.to_dict()
-            a.update(regime=regime, experiment='all', model='persistence', pred=r.latest,
-                     residual=r.latest - r.y,
-                     lo=max(0, r.latest - radius) if np.isfinite(radius) else np.nan,
-                     hi=min(100, r.latest + radius) if np.isfinite(radius) else np.nan,
-                     calibration_n=len(cal), radius=radius,
-                     calibration_latest=int(cal.label_available.max()) if len(cal) else 0,
-                     train_latest=0,
-                     block=('final test' if r.target_year in C['final_test_years']
-                            else 'development'))
-            rows.append(a)
+        rows += persistence(d, regime, state)
     p = pd.DataFrame(rows)
-    p.to_csv(OUT / 'predictions.csv', index=False)
-    pd.DataFrame(calibration).to_csv(OUT / 'calibration.csv', index=False)
-    records = []
-    for key, a in p.groupby(['regime', 'experiment', 'model', 'block']):
-        for weighted in [False, True]:
-            records.append(dict(zip(['regime', 'experiment', 'model', 'block'], key))
-                           | {'weighted': weighted} | metrics(a, weighted))
-    (OUT / 'metrics.json').write_text(json.dumps(records, indent=2))
-    (OUT / 'paired.json').write_text(json.dumps(paired(p[p.block == 'final test']), indent=2))
+    write(OUT / 'predictions.csv', p)
+    write(OUT / 'calibration.csv', pd.DataFrame(calibration))
+    keys = ['regime', 'experiment', 'model', 'block']
+    records = [dict(zip(keys, key, strict=False)) | {'weighted': w} | metrics(a, w)
+               for key, a in p.groupby(keys) for w in [False, True]]
+    write(OUT / 'metrics.json', records)
+    write(OUT / 'paired.json', paired(p[p.block == 'final test']))
     artifacts = ROOT / C['paths']['models']
     artifacts.mkdir(exist_ok=True)
-    (artifacts / 'fits.json').write_text(json.dumps(configs, indent=2))
-    ref = d[d.target_year == 2024].copy()
-    scenarios['rows'] = json.loads(ref.to_json(orient='records'))
-    scenarios['ranges'] = {f: [float(d[d.label_available <= 2023][f].min()),
-                               float(d[d.label_available <= 2023][f].max())]
+    write(artifacts / 'fits.json', configs)
+    y = C['evaluation_years'][-1]
+    train = d[d.label_available <= y - 1]
+    scenarios['rows'] = json.loads(d[d.target_year == y].to_json(orient='records'))
+    scenarios['ranges'] = {f: [float(train[f].min()), float(train[f].max())]
                            for f in scenarios['linear']['features']}
-    (artifacts / 'scenarios.json').write_text(json.dumps(scenarios, indent=2))
+    write(artifacts / 'scenarios.json', scenarios)
     print(pd.DataFrame(records).query(
         "regime == 'temporal' and experiment == 'all' and block == 'final test' and not weighted"
     ).to_string(index=False), flush=True)

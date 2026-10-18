@@ -1,4 +1,4 @@
-# Preserve exact source/result bytes recorded in artifacts/build.json.
-* -text
-* whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
-site/vendor/** -whitespace linguist-vendored
+* text=auto eol=lf
+site/vendor/** linguist-vendored
+site/data.json linguist-generated
+site/downloads/** linguist-generated
