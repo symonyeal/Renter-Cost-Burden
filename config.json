@@ -20,5 +20,5 @@
   },
   "ridge_grid": [1, 10, 100],
   "tree_grid": [3, 7],
-  "paths": {"raw": "data/raw", "processed": "data/processed", "models": "artifacts", "site": "site"}
+  "paths": {"raw": "data/raw", "interim": "data/interim", "processed": "data/processed", "models": "artifacts", "site": "site"}
 }

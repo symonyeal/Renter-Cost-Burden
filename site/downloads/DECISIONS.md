@@ -15,6 +15,8 @@ Ranked cross-state destinations remain unavailable and are labelled accordingly.
 Use conservative lags and revised downloads; do not pretend to have historical vintages.
 Keep the final 2023–2024 block untouched. Clipping and feature eligibility are common to all models.
 
-The Windows Store python/py aliases cannot be executed in this session. The installed system
-Python at AppData/Local/Python/pythoncore-3.14-64/python.exe works; serve.cmd resolves that path.
-The CMD launcher avoids the system's disabled PowerShell-script execution policy.
+2026-10-17, maintenance. Generated files are written with LF endings and UTF-8 on every OS, and
+`.gitattributes` normalizes line endings, so outputs no longer differ between Windows and CI.
+Network fetches moved from the site build into `analysis.data`; the site build is offline.
+Per-state-year aggregates live in `data/interim/`. The custom launchers were replaced by
+`python -m http.server`. The refactor reproduced every processed output byte for byte.

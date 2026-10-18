@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from analysis.data import C, OUT, RAW, ROOT
+from analysis.data import OUT, RAW, ROOT, C
 from analysis.models import growth
 
 
@@ -91,7 +91,7 @@ def test_timing_and_geographic_certificates():
         if fit['experiment'] == 'employment':
             assert not set(C['groups']['commuting']) & set(fit['features'])
     for _, d in p[p.model != 'persistence'].groupby(['regime', 'model']):
-        sets = [set(zip(x.fips, x.target_year)) for _, x in d.groupby('experiment')]
+        sets = [set(zip(x.fips, x.target_year, strict=False)) for _, x in d.groupby('experiment')]
         assert all(s == sets[0] for s in sets)
     assert (p[p.lo.notna()].calibration_n >= 30).all()
 
@@ -161,6 +161,6 @@ def test_interval_calibration_reconstructs_without_held_out_outcomes():
         if len(a) < 30:
             assert d.lo.isna().all()
         else:
-            radius = np.quantile(a.error, .8, method='higher')
+            radius = np.quantile(a.error, C['interval_coverage'], method='higher')
             assert np.allclose(d.lo, np.maximum(0, d.pred - radius))
             assert np.allclose(d.hi, np.minimum(100, d.pred + radius))
