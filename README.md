@@ -1,7 +1,33 @@
 # The Prosperity Gap
 
-Can workplace growth and commuting improve predictions of renter housing-cost burden?
-A reproducible regional backtest on official public data, with a static research site.
+When a county gains jobs, do its renters end up spending more of their income on rent? And
+if you know how jobs and commuting are changing, can you better predict how many renters
+will be stretched next year?
+
+## In plain terms
+
+A renter household counts as *stretched* if rent and utilities take 30% or more of its
+income. This project tries to predict, a year ahead, what share of renters in a county are
+stretched. It covers the ten largest counties in each of Colorado, Massachusetts and
+Washington (30 in all) from 2011 to 2024, using official statistics on housing, jobs and
+commuting.
+
+Every prediction uses only figures that had actually been published by then. A forecaster in
+December 2022 could not have known the 2023 job numbers, so the test does not let the models
+know them either.
+
+**What we found.** The simplest guess won. Assuming the share stays at its latest published
+value missed by 2.9 percentage points on average in 2023–2024 (predicting 45% when the true
+share was 48% is a miss of 3 points). Two statistical models that also used housing, jobs and
+commuting data missed by 3.1 and 3.6 points. Commuting data helped one model and hurt the
+other. When a model was trained on two states and tested on the third, commuting data made
+its predictions slightly worse in every case.
+
+**What this does not show.** It is a small regional study, not a national one. It measures
+prediction, not cause: it does not show that job growth raises rents. It gives no advice to
+households.
+
+## Technical summary
 
     Target: 100 × renters spending ≥30% of income on gross rent / renters with a computable ratio.
     Origin: December 31 of t. Target year: t+1. Only lag-eligible predictors and labels.
