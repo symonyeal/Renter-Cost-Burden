@@ -38,6 +38,8 @@ and exclusions in [Coverage](docs/COVERAGE.md), checks in [Validation](docs/VALI
 
 ## View the site
 
+Live: **https://symonyeal.github.io/The-Prosperity-Gap/**. To serve it locally:
+
 ```powershell
 python -m http.server 8765 --directory site
 ```
