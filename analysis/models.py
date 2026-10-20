@@ -250,26 +250,10 @@ def persistence(d, regime, state):
     return rows
 
 
-def scenario_cases(m, test, features, model):
-    """Python reference predictions at perturbed inputs, for the browser predictor check."""
-    cases = []
-    for k in [.9, 1.1]:
-        x = test.copy()
-        n = x.acs_year - x.acs_previous
-        for f, g in [('real_rent', 'rent_growth'), ('real_income', 'income_growth')]:
-            x[f] *= k
-            x[g] = 100 * ((1 + x[g] / 100) * k ** (1 / n) - 1)
-        x.job_growth += 2
-        x.housing_growth += 1
-        cases.extend({'row': r, 'pred': float(v)} for r, v in zip(
-            json.loads(x.to_json(orient='records')), predict(m, x, features, model), strict=False))
-    return cases
-
-
 def run():
     """Freeze origin-specific fits; no held-out outcome enters preprocessing or calibration."""
     d = panel()
-    rows, calibration, configs, scenarios = [], [], [], {}
+    rows, calibration, configs, final = [], [], [], {}
     regimes = [('temporal', None)] + [(f'holdout_{s}', s) for s in sorted(d.state.unique())]
     for regime, state in regimes:
         for experiment, groups in SETS.items():
@@ -280,9 +264,7 @@ def run():
                 calibration += c
                 configs += f
                 if regime == 'temporal' and experiment == 'all':
-                    scenarios[model] = export_model(m, features, model)
-                    scenarios['reference_' + model] = p.tolist()
-                    scenarios['cases_' + model] = scenario_cases(m, test, features, model)
+                    final[model] = export_model(m, features, model)
         print('Evaluated', regime, flush=True)
     for regime, state in regimes:
         rows += persistence(d, regime, state)
@@ -297,12 +279,7 @@ def run():
     artifacts = ROOT / C['paths']['models']
     artifacts.mkdir(exist_ok=True)
     write(artifacts / 'fits.json', configs)
-    y = C['evaluation_years'][-1]
-    train = d[d.label_available <= y - 1]
-    scenarios['rows'] = json.loads(d[d.target_year == y].to_json(orient='records'))
-    scenarios['ranges'] = {f: [float(train[f].min()), float(train[f].max())]
-                           for f in scenarios['linear']['features']}
-    write(artifacts / 'scenarios.json', scenarios)
+    write(artifacts / 'final_model.json', final)
     print(pd.DataFrame(records).query(
         "regime == 'temporal' and experiment == 'all' and block == 'final test' and not weighted"
     ).to_string(index=False), flush=True)

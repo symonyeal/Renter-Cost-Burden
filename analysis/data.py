@@ -142,6 +142,18 @@ def old_acs(y):
     return pd.concat(out)
 
 
+def margin(d):
+    """90% margin of burden, pp. The numerator is a subset of the denominator, so the Census
+    proportion formula applies: sqrt(mN² − p² mD²)/D. Where the radicand is negative the
+    Census ratio formula sqrt(mN² + p² mD²)/D is used instead (ACS handbook, chapter 8)."""
+    num, den = d.burden_numerator, d.burden_denominator
+    mn = np.sqrt(sum(d[f'B25070_MOE{k:03}'] ** 2 for k in range(7, 11)))
+    md = np.sqrt(d.B25070_MOE001 ** 2 + d.B25070_MOE011 ** 2)
+    p = num / den
+    r = mn ** 2 - p ** 2 * md ** 2
+    return 100 * np.sqrt(r.where(r >= 0, mn ** 2 + p ** 2 * md ** 2)) / den
+
+
 def acs_year(y):
     """Published categories define burden; negative Census sentinels remain in raw columns."""
     if y < 2018:
@@ -280,11 +292,7 @@ def run():
     d['burden'] = 100 * num / den
     d['burden_numerator'], d['burden_denominator'] = num, den
     d['renters'] = d.B25070_001
-    # Delta-method ratio approximation without unavailable category covariances.
-    mn = np.sqrt(sum(d[f'B25070_MOE{k:03}'] ** 2 for k in range(7, 11)))
-    md = np.sqrt(d.B25070_MOE001 ** 2 + d.B25070_MOE011 ** 2)
-    p = num / den
-    d['burden_moe'] = 100 * np.sqrt(mn ** 2 + p ** 2 * md ** 2) / den
+    d['burden_moe'] = margin(d)
     for c, v in [('population', 'B01003_001'), ('housing', 'B25001_001'),
                  ('rent', 'B25064_001'), ('income', 'B25119_003')]:
         d[c] = d[v].where(d[v] >= 0)

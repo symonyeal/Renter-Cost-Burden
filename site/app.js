@@ -1,957 +1,548 @@
 'use strict';
-let DATA;
+// Legend
+//   D      data.json bundle          G   D.gap (county results, noise, added-later forecasts)
+//   T      2011–2024 period          E   2011–2019 period
+//   f      county FIPS               c   one county's row in a period
+//   b      share stretched, %        db  change in b, points; m_db its 90% survey margin
+//   gap    rent growth minus renter income growth, log points
+//   per10  slope per 10 units of x; lo, hi its 80% county bootstrap range
+let D, G, T, E;
 const $ = id => document.getElementById(id);
-const fmt = (x, n = 1) => (x == null || !Number.isFinite(+x) ? 'Unavailable' : (+x).toFixed(n));
+const N = {};
+const ST = { '08': 'Colorado', 25: 'Massachusetts', 53: 'Washington' };
+const css = getComputedStyle(document.documentElement);
+const v = k => css.getPropertyValue('--' + k).trim();
+const fx = (x, n = 1) => (x == null || !Number.isFinite(+x) ? '–' : (+x).toFixed(n));
+const sg = (x, n = 1) => (x >= 0 ? '+' : '−') + Math.abs(x).toFixed(n);
+const usd = x => '$' + Math.round(x).toLocaleString('en-US');
+const short = f => N[f].replace(' County', '').split(',')[0];
 const esc = x =>
   String(x ?? '').replace(
     /[&<>"']/g,
     c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c],
   );
-const names = {},
-  states = { '08': 'Colorado', 25: 'Massachusetts', 53: 'Washington' };
-const labels = { linear: 'Panel regression', trees: 'Boosted trees', persistence: 'Persistence' };
-const experiments = {
-  core: 'Core history',
-  housing: '+ Housing & income',
-  employment: '+ Employment',
-  all: '+ Commuting (all)',
-  no_housing: 'All except housing',
-  no_employment: 'All except employment',
+
+function table(id, h, rows) {
+  $(id).innerHTML =
+    `<table><thead><tr>${h.map(x => `<th scope="col">${esc(x)}</th>`).join('')}</tr></thead>` +
+    `<tbody>${rows.map(r => `<tr>${r.map(x => `<td>${x}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+}
+// Chart titles are HTML captions above the chart, so they wrap on narrow screens.
+function plot(id, tr, lay = {}) {
+  const ax = { gridcolor: v('grid'), zeroline: false, automargin: true, linecolor: v('border') },
+    t = lay.title?.text;
+  if (t) {
+    let h = $(id + 'T');
+    if (!h) {
+      const box = document.createElement('div');
+      h = document.createElement('p');
+      h.id = id + 'T';
+      h.className = 'ct';
+      $(id).before(box);
+      box.append(h, $(id));
+    }
+    h.textContent = t;
+    lay = { ...lay, title: undefined, margin: { t: 12, b: 56, l: 56, r: 16, ...lay.margin, t: lay.margin?.t > 44 ? lay.margin.t - 32 : 12 } };
+  }
+  return Plotly.react(
+    id,
+    tr,
+    {
+      paper_bgcolor: 'transparent',
+      plot_bgcolor: 'transparent',
+      font: { family: v('font'), size: 13, color: v('text') },
+      margin: { t: 44, b: 56, l: 56, r: 16 },
+      hovermode: 'closest',
+      showlegend: false,
+      title: { font: { size: 15 }, x: 0, xref: 'paper' },
+      ...lay,
+      xaxis: { ...ax, ...lay.xaxis },
+      yaxis: { ...ax, ...lay.yaxis },
+    },
+    { responsive: true, displaylogo: false, modeBarButtonsToRemove: ['select2d', 'lasso2d'] },
+  );
+}
+function hex(h) {
+  const n = parseInt(h.replace('#', ''), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+function mix(a, b, t) {
+  const [x, y] = [hex(a), hex(b)];
+  return `rgb(${x.map((q, i) => Math.round(q + (y[i] - q) * t)).join(',')})`;
+}
+// Diverging fill: rises warm, falls cool, ±12 points saturates.
+const fill = db => mix(v('surface'), db >= 0 ? v('up') : v('down'), Math.min(1, Math.abs(db) / 12));
+const verdict = c => (c.verdict === 'up' ? 'up' : c.verdict === 'down' ? 'down' : 'flat');
+const said = c =>
+  c.verdict === 'within noise' ? 'within survey error' : `${c.verdict}, beyond survey error`;
+const fit = (p, x, y) => {
+  const s = p.slopes.find(s => s.x === x && s.y === y),
+    xs = p.counties.map(c => c[x]),
+    ys = p.counties.map(c => c[y]),
+    mx = xs.reduce((a, b) => a + b) / xs.length,
+    my = ys.reduce((a, b) => a + b) / ys.length,
+    lo = Math.min(...xs),
+    hi = Math.max(...xs);
+  return { s, x: [lo, hi], y: [lo, hi].map(q => my + (s.per10 / 10) * (q - mx)) };
 };
-const featureNames = {
-  latest: 'Latest observed burden',
-  burden_change: 'Prior burden change (pp/year)',
-  log_population: 'Log population',
-  real_rent: 'Real median gross rent ($/month)',
-  real_income: 'Real renter household income ($/year)',
-  rent_growth: 'Real rent growth (%/year)',
-  income_growth: 'Real income growth (%/year)',
-  housing_growth: 'Housing-stock growth (%/year)',
-  job_growth: 'Covered employment growth (%/year)',
-  pay_growth: 'Real average-pay growth (%/year)',
-  goods_share: 'Private goods jobs / all covered jobs',
-  services_share: 'Private service jobs / all jobs',
-  inbound: 'Inbound primary-worker share',
-  outbound: 'Outbound primary-worker share',
-};
-const theme = getComputedStyle(document.documentElement);
-const color = key => theme.getPropertyValue('--' + key).trim();
-const colors = ['c1', 'c2', 'c3'].map(color);
-function options(id, rows) {
-  $(id).innerHTML = rows.map(([v, s]) => `<option value="${esc(v)}">${esc(s)}</option>`).join('');
-}
-function table(id, heads, rows) {
-  $(id).innerHTML = rows.length
-    ? `<table><thead><tr>${heads.map(h => `<th scope="col">${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.map(r => `<tr>${r.map(v => `<td>${v}</td>`).join('')}</tr>`).join('')}</tbody></table>`
-    : '<p class="empty">No eligible observations for this selection.</p>';
-}
-function facts(id, rows) {
-  $(id).innerHTML = rows
-    .map(([a, b]) => `<div><b>${esc(a)}</b><span>${esc(b)}</span></div>`)
-    .join('');
-}
-function plot(id, traces, extra = {}) {
-  const layout = {
-    paper_bgcolor: 'transparent',
-    plot_bgcolor: 'transparent',
-    font: { family: 'Arial, sans-serif', size: 12, color: color('text') },
-    margin: { t: 48, b: 62, l: 60, r: 22 },
-    hovermode: 'closest',
-    title: { font: { size: 15 }, x: 0.02 },
-    showlegend: false,
-    xaxis: { zeroline: false, gridcolor: color('border'), automargin: true },
-    yaxis: { zeroline: false, gridcolor: color('border'), automargin: true },
-    ...extra,
-  };
-  return Plotly.react(id, traces, layout, {
-    responsive: true,
-    displaylogo: false,
-    modeBarButtonsToRemove: ['select2d', 'lasso2d', 'autoScale2d'],
-  });
-}
-function selected() {
-  return $('county').value;
-}
 function link(f) {
-  if (!names[f]) return;
+  if (!N[f]) return;
   $('county').value = f;
-  $('search').value = '';
-  save();
-  render().catch(fail);
+  const u = new URL(location.href);
+  u.searchParams.set('county', f);
+  history.replaceState(null, '', u);
+  counties().catch(fail);
 }
-function wirePlot(id) {
+function wire(id) {
   const el = $(id);
   if (el.removeAllListeners) el.removeAllListeners('plotly_click');
-  el.on('plotly_click', e => {
-    const f = e.points[0].customdata;
-    link(Array.isArray(f) ? f[0] : f);
-  });
+  el.on('plotly_click', e => link(e.points[0].customdata));
 }
-function save() {
-  const u = new URL(location.href);
-  for (const id of [
-    'county',
-    'evidenceYear',
-    'region',
-    'regime',
-    'model',
-    'modelYear',
-    'weight',
-    'stratum',
-    'experiment',
-    'flowYear',
-    'flowDirection',
-    'compare1',
-    'compare2',
-    'compare3',
-  ]) {
-    u.searchParams.set(id, $(id).value);
-  }
-  history.replaceState(null, '', u);
-}
-function restore() {
-  const p = new URL(location.href).searchParams;
-  for (const [id, v] of p) {
-    const el = $(id);
-    if (el && el.tagName === 'SELECT' && [...el.options].some(o => o.value === v)) el.value = v;
-  }
-}
-function scores(rows) {
-  if (!rows.length) return null;
-  const w = rows.map(r => ($('weight').value === 'renters' ? r.weight : 1)),
-    den = w.reduce((a, b) => a + b, 0),
-    avg = f => rows.reduce((s, r, i) => s + w[i] * f(r), 0) / den,
-    sign = x => (Math.abs(x) <= DATA.config.direction_tolerance ? 0 : Math.sign(x)),
-    intervals = rows.filter(r => r.lo != null),
-    wi = intervals.map(r => ($('weight').value === 'renters' ? r.weight : 1)),
-    di = wi.reduce((a, b) => a + b, 0);
-  return {
-    n: rows.length,
-    mae: avg(r => Math.abs(r.pred - r.y)),
-    rmse: Math.sqrt(avg(r => (r.pred - r.y) ** 2)),
-    gain: avg(r => Math.abs(r.latest - r.y) - Math.abs(r.pred - r.y)),
-    direction: avg(r => (sign(r.pred - r.latest) === sign(r.y - r.latest) ? 1 : 0)),
-    coverage: di
-      ? intervals.reduce((s, r, i) => s + wi[i] * (r.y >= r.lo && r.y <= r.hi ? 1 : 0), 0) / di
-      : null,
-    width: di ? intervals.reduce((s, r, i) => s + wi[i] * (r.hi - r.lo), 0) / di : null,
-    ni: intervals.length,
-  };
-}
-function median(xs) {
-  const a = [...xs].sort((a, b) => a - b);
-  return a[Math.floor(a.length / 2)];
-}
-function results(model = $('model').value, experiment = $('experiment').value) {
-  let d = DATA.predictions.filter(
-    r =>
-      r.regime === $('regime').value &&
-      r.model === model &&
-      r.experiment === (model === 'persistence' ? 'all' : experiment),
-  );
-  const year = $('modelYear').value;
-  d = d.filter(
-    r => year === 'all' || (year === 'final' ? r.block === 'final test' : r.target_year === +year),
-  );
-  const s = $('stratum').value,
-    pop = median(d.map(r => r.log_population)),
-    burden = median(d.map(r => r.latest)),
-    moe = median(d.map(r => r.target_moe));
-  if (s === 'large') d = d.filter(r => r.log_population >= pop);
-  if (s === 'small') d = d.filter(r => r.log_population < pop);
-  if (s === 'high') d = d.filter(r => r.latest >= burden);
-  if (s === 'low') d = d.filter(r => r.latest < burden);
-  if (s === 'reliable') d = d.filter(r => r.target_moe <= moe);
-  if (s === 'noisy') d = d.filter(r => r.target_moe > moe);
-  return d;
-}
-async function hero() {
-  const d = DATA.metrics
-    .filter(
-      r =>
-        r.regime === 'temporal' &&
-        r.experiment === 'all' &&
-        r.block === 'final test' &&
-        !r.weighted,
-    )
-    .sort((a, b) => a.mae - b.mae);
-  const baseline = d.find(r => r.model === 'persistence'),
-    best = d[0];
-  $('heroTitle').textContent =
-    `Final temporal test: ${best.model === 'persistence' ? 'persistence' : labels[best.model].toLowerCase()} wins.`;
-  $('finding').textContent =
-    best.model === 'persistence'
-      ? `Neither all-source fitted model beat persistence. Carrying forward the latest burden gave the lowest final test error: ${fmt(best.mae, 2)} percentage points.`
-      : `${labels[best.model]} reduced final test error by ${fmt(baseline.mae - best.mae, 2)} percentage points against persistence. The result comes from 30 counties, not a national sample.`;
+
+async function summary() {
+  const P = Object.fromEntries(G.pooled.map(r => [r.year, r])),
+    m = T.median,
+    moved = T.counties.filter(c => c.verdict !== 'within noise'),
+    o = G.one_year,
+    js = T.slopes.find(s => s.x === 'jobs_pct' && s.y === 'rent_pct'),
+    ji = T.slopes.find(s => s.x === 'jobs_pct' && s.y === 'inc_pct'),
+    gs = T.slopes.find(s => s.x === 'gap' && s.y === 'db'),
+    pf = D.metrics.find(
+      r => r.regime === 'temporal' && r.experiment === 'all' && r.model === 'persistence' &&
+        r.block === 'final test' && !r.weighted,
+    );
+  $('answer').textContent =
+    `Mostly, yes. ${fx(P[2011].b)}% of renter households paid 30% or more of their income on ` +
+    `rent and utilities in 2011, and ${fx(P[2024].b)}% in 2024. After inflation, rent rose ` +
+    `${fx(m.rent_pct, 0)}% in the median county and renter income ${fx(m.inc_pct, 0)}%. ` +
+    `The exceptions are counties where rent outran income.`;
+  $('tiles').innerHTML = [
+    [fx(P[2024].b) + '%', 'of renter households stretched, 2024'],
+    [sg(m.rent_pct, 0) + '%', 'rent, median county, after inflation'],
+    [sg(m.inc_pct, 0) + '%', 'renter income, median county, after inflation'],
+    [`${moved.length} of 30`, 'counties changed by more than survey error'],
+  ]
+    .map(([a, b]) => `<div><b>${a}</b><span>${b}</span></div>`)
+    .join('');
+  const F = [
+    ['counties', `The share rose by more than survey error in ${moved.filter(c => c.verdict === 'up').map(c => short(c.fips)).join(', ')}, and fell in ${moved.filter(c => c.verdict === 'down').map(c => short(c.fips)).join(', ')}.`],
+    ['rent', `Each 10 points by which rent outgrew renter income came with a ${fx(gs.per10)}-point rise in the share stretched.`],
+    ['jobs', `Per 10% more jobs, rent rose ${fx(js.per10)}% and renter income ${fx(ji.per10)}%.`],
+    ['forecast', `A county's share moves about ${fx(o.rms_change)} points a year; survey error alone moves it ${fx(o.rms_noise)}. Carrying last year's value forward missed by ${fx(pf.mae, 2)} points, and no model did better.`],
+  ];
+  $('findings').innerHTML = F.map(([h, t]) => `<li>${esc(t)} <a href="#${h}">More</a></li>`).join('');
+  const ys = Array.from({ length: 14 }, (_, i) => 2011 + i),
+    b = ys.map(y => P[y]?.b ?? null),
+    band = s => ({
+      x: [...s, ...[...s].reverse()],
+      y: [...s.map(y => P[y].b + P[y].moe), ...[...s].reverse().map(y => P[y].b - P[y].moe)],
+      fill: 'toself', mode: 'lines', line: { width: 0 }, hoverinfo: 'skip',
+      fillcolor: mix(v('surface'), v('a'), 0.25),
+    });
   await plot(
-    'heroChart',
+    'trend',
     [
+      band(ys.filter(y => y < 2020)),
+      band(ys.filter(y => y > 2020)),
       {
-        type: 'bar',
-        orientation: 'h',
-        x: d.map(r => r.mae),
-        y: d.map(r => labels[r.model]),
-        marker: { color: d.map((r, i) => (i === 0 ? color('accent') : color('context'))) },
-        text: d.map(r => `${fmt(r.mae, 2)} pp`),
-        textposition: 'outside',
-        cliponaxis: false,
-        hovertemplate: '%{y}<br>MAE %{x:.3f} pp<br>2023–2024 · held out<extra></extra>',
+        x: ys, y: b, mode: 'lines+markers', line: { color: v('a'), width: 2.5 },
+        marker: { size: 6 }, connectgaps: false,
+        hovertemplate: '%{x}: %{y:.1f}%<extra></extra>',
       },
     ],
     {
-      margin: { t: 10, b: 45, l: 115, r: 55 },
-      xaxis: {
-        title: { text: 'Mean absolute error (percentage points)' },
-        range: [0, Math.max(...d.map(r => r.mae)) * 1.35],
-        gridcolor: color('border'),
-      },
-      yaxis: { autorange: 'reversed' },
+      margin: { t: 12, b: 36, l: 44, r: 10 },
+      yaxis: { range: [46, 55], ticksuffix: '%' },
+      xaxis: { dtick: 2 },
     },
   );
-  facts('heroMetrics', [
-    [fmt(best.mae, 2) + ' pp', 'Lowest final temporal MAE'],
-    [String(baseline.n), 'Final county-targets'],
-    ['3', 'Geographic holdout groups'],
-  ]);
 }
-function map(rows) {
-  const byFips = Object.fromEntries(rows.map(r => [r.fips, r])),
-    f = selected(),
-    parts = [];
-  for (const [i, st] of Object.keys(states).entries()) {
-    const gs = DATA.geometry.features.filter(g => g.properties.GEOID.startsWith(st));
-    const rings = gs.flatMap(g =>
-      g.geometry.type === 'Polygon' ? g.geometry.coordinates : g.geometry.coordinates.flat(),
-    );
-    const points = rings.flat(),
-      xs = points.map(p => p[0]),
-      ys = points.map(p => p[1]);
-    const xmin = Math.min(...xs),
-      xmax = Math.max(...xs),
-      ymin = Math.min(...ys),
-      ymax = Math.max(...ys),
-      scale = Math.min(145 / (xmax - xmin), 210 / (ymax - ymin)),
-      project = p => [i * 175 + 12 + (p[0] - xmin) * scale, 65 + (ymax - p[1]) * scale];
-    parts.push(
-      `<text x="${i * 175 + 12}" y="27" font-size="13" fill="${color('text')}">${states[st]}</text>`,
-    );
+
+function map() {
+  const by = Object.fromEntries(T.counties.map(c => [c.fips, c])),
+    f = $('county').value,
+    out = [];
+  for (const [i, st] of ['53', '08', '25'].entries()) {
+    const gs = D.geometry.features.filter(g => g.properties.GEOID.startsWith(st)),
+      pts = gs.flatMap(g => (g.geometry.type === 'Polygon' ? [g.geometry.coordinates] : g.geometry.coordinates)).flat(2),
+      xs = pts.map(p => p[0]),
+      ys = pts.map(p => p[1]),
+      x0 = Math.min(...xs),
+      y1 = Math.max(...ys),
+      k = Math.min(190 / (Math.max(...xs) - x0), 200 / (y1 - Math.min(...ys))),
+      pr = p => [i * 210 + 6 + (p[0] - x0) * k, 30 + (y1 - p[1]) * k];
+    out.push(`<text x="${i * 210 + 6}" y="18" font-size="13" fill="${v('muted')}">${ST[st]}</text>`);
     for (const g of gs) {
-      const r = byFips[g.properties.GEOID],
-        v = r?.housing_growth,
-        polygons =
-          g.geometry.type === 'Polygon' ? [g.geometry.coordinates] : g.geometry.coordinates,
-        path = polygons
-          .map(poly =>
-            poly
-              .map(
-                ring =>
-                  ring
-                    .map((p, j) => {
-                      const [x, y] = project(p);
-                      return `${j ? 'L' : 'M'}${x.toFixed(2)},${y.toFixed(2)}`;
-                    })
-                    .join(' ') + 'Z',
-              )
-              .join(' '),
-          )
-          .join(' '),
-        shade =
-          v == null
-            ? color('border')
-            : v >= 0
-              ? `hsl(184 36% ${85 - Math.min(v, 5) * 9}%)`
-              : `hsl(12 59% ${85 - Math.min(-v, 5) * 9}%)`;
-      parts.push(`<path d="${path}" fill="${shade}" data-fips="${g.properties.GEOID}"
-        class="${g.properties.GEOID === f ? 'selected' : ''}" tabindex="0" role="button"
-        aria-label="${esc(names[g.properties.GEOID])}: housing growth ${fmt(v)} percent per year">
-        <title>${esc(names[g.properties.GEOID])} · ${$('evidenceYear').value} target
-        · housing ${fmt(v)}%/year · observed predictor</title></path>`);
+      const id = g.properties.GEOID,
+        c = by[id],
+        polys = g.geometry.type === 'Polygon' ? [g.geometry.coordinates] : g.geometry.coordinates,
+        d = polys
+          .map(poly => poly.map(r => r.map((p, j) => (j ? 'L' : 'M') + pr(p).map(q => q.toFixed(1)).join(',')).join('') + 'Z').join(''))
+          .join('');
+      out.push(
+        `<path d="${d}" fill="${fill(c.db)}" data-f="${id}" tabindex="0" role="button"` +
+          ` class="${c.verdict !== 'within noise' ? 'moved' : ''} ${id === f ? 'selected' : ''}"` +
+          ` aria-label="${esc(N[id])}: ${sg(c.db)} points, ${said(c)}"><title>${esc(N[id])}: ${sg(c.db)} points, ${said(c)}</title></path>`,
+      );
     }
   }
-  $('map').innerHTML =
-    `<svg viewBox="0 0 530 300" role="group" aria-label="Thirty sampled county boundaries">${parts.join('')}</svg>`;
-  $('map')
-    .querySelectorAll('path')
-    .forEach(p => {
-      p.onclick = () => link(p.dataset.fips);
-      p.onkeydown = e => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          link(p.dataset.fips);
-        }
-      };
-    });
+  $('map').innerHTML = `<svg viewBox="0 0 630 240" role="group" aria-label="Map of the 30 counties coloured by change in share stretched">${out.join('')}</svg>`;
+  $('map').querySelectorAll('path').forEach(p => {
+    p.onclick = () => link(p.dataset.f);
+    p.onkeydown = e => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        link(p.dataset.f);
+      }
+    };
+  });
+  $('mapKey').innerHTML =
+    `<span>Fell 12</span><i style="background:linear-gradient(90deg,${fill(-12)},${fill(0)},${fill(12)})"></i><span>Rose 12 points</span>`;
 }
-async function evidence() {
-  let d = DATA.scientificPanel.filter(r => r.target_year === +$('evidenceYear').value);
-  d = d.filter(
-    r =>
-      ($('region').value === 'all' || r.state === $('region').value) &&
-      names[r.fips].toLowerCase().includes($('search').value.toLowerCase()),
-  );
-  map(d);
+
+async function counties() {
+  const f = $('county').value,
+    c = T.counties.find(c => c.fips === f),
+    w = D.flows.filter(r => r.fips === f).sort((a, b) => b.year - a.year)[0],
+    rows = D.paths.filter(r => r.fips === f),
+    P = Object.fromEntries(G.pooled.map(r => [r.year, r]));
+  map();
+  $('card').innerHTML =
+    `<h3>${esc(N[f])}</h3>` +
+    `<p class="big">Share stretched: <b>${fx(c.b0)}%</b> in 2011, <b>${fx(c.b1)}%</b> in 2024. ` +
+    `Change ${sg(c.db)} ± ${fx(c.m_db)} points <span class="badge ${verdict(c)}">${said(c)}</span></p>` +
+    `<dl><dt>Median rent</dt><dd>${usd(c.R0)} → ${usd(c.R1)} a month (${sg(c.rent_pct)}%)</dd>` +
+    `<dt>Median renter income</dt><dd>${usd(c.I0)} → ${usd(c.I1)} a year (${sg(c.inc_pct)}%)</dd>` +
+    `<dt>Rent minus income</dt><dd>${sg(c.gap)} log points</dd>` +
+    `<dt>Jobs at workplaces</dt><dd>${Math.round(c.J0).toLocaleString('en-US')} → ${Math.round(c.J1).toLocaleString('en-US')} (${sg(c.jobs_pct)}%, 2011–${c.j1})</dd>` +
+    `<dt>Average workplace pay</dt><dd>${sg(c.pay_pct)}%, 2011–${c.j1}</dd>` +
+    (w
+      ? `<dt>Commuting, ${w.year}</dt><dd>${fx(100 * w.inbound, 0)}% of jobs here are held by people living in another county; ${fx(100 * w.outbound, 0)}% of working residents work in another county</dd>`
+      : '') +
+    `</dl><p class="note">Dollars are ${G.base_year} dollars. Margins are Census 90% survey margins.</p>`;
+  const ys = Array.from({ length: 14 }, (_, i) => 2011 + i),
+    by = Object.fromEntries(rows.map(r => [r.year, r]));
   await plot(
-    'scatter',
+    'countyShare',
     [
       {
-        type: 'scatter',
-        mode: 'markers',
-        x: d.map(r => r.job_growth),
-        y: d.map(r => r.y - r.latest),
-        customdata: d.map(r => r.fips),
-        text: d.map(
-          r =>
-            `${names[r.fips]}<br>QCEW ${r.qcew_year} growth<br>Burden ${r.acs_year}→${r.target_year}<br>Observed target; lagged predictors`,
-        ),
-        marker: {
-          size: d.map(r => (r.fips === selected() ? 16 : 9)),
-          color: d.map(r => r.housing_growth),
-          colorscale: 'RdBu',
-          cmid: 0,
-          cmin: -5,
-          cmax: 5,
-          line: { color: color('text'), width: d.map(r => (r.fips === selected() ? 2 : 0)) },
-          showscale: true,
-          colorbar: {
-            title: { text: 'Housing<br>%/year', font: { size: 12 } },
-            thickness: 9,
-            len: 0.6,
-          },
-        },
-        hovertemplate: '%{text}<br>Jobs %{x:.2f}%/year<br>Burden change %{y:.2f} pp<extra></extra>',
+        x: ys, y: ys.map(y => P[y]?.b ?? null), mode: 'lines', name: 'All 30 counties',
+        line: { color: v('flat'), width: 2, dash: 'dot' }, connectgaps: false,
+        hovertemplate: 'All 30 counties, %{x}: %{y:.1f}%<extra></extra>',
+      },
+      {
+        x: ys, y: ys.map(y => by[y]?.burden ?? null), mode: 'lines+markers', name: short(f),
+        line: { color: v('a'), width: 2.5 }, connectgaps: false,
+        error_y: { type: 'data', array: ys.map(y => by[y]?.burden_moe ?? 0), color: v('a'), thickness: 1, width: 3 },
+        hovertemplate: `${esc(short(f))}, %{x}: %{y:.1f}%<extra></extra>`,
       },
     ],
     {
-      title: { text: 'Do job gains coincide with rising renter burden?' },
-      margin: { t: 50, b: 70, l: 60, r: 70 },
-      xaxis: {
-        title: { text: 'Lagged covered employment growth (%/year)' },
-        range: [-18, 18],
-        gridcolor: color('border'),
-        zeroline: true,
-      },
-      yaxis: {
-        title: { text: 'Change from latest burden (pp)' },
-        range: [-12, 12],
-        gridcolor: color('border'),
-        zeroline: true,
-      },
-    },
-  );
-  wirePlot('scatter');
-  $('evidenceNote').textContent = d.length
-    ? `${d.length} counties · target ${d[0].target_year}; burden change ${d[0].acs_year}→${d[0].target_year} (${d[0].target_year - d[0].acs_year} years); QCEW ${d[0].qcew_year}. ACS/QCEW observed data. Fixed chart ranges preserve comparisons.`
-    : 'No counties match these filters.';
-  const r = DATA.scientificPanel.find(
-    r => r.fips === selected() && r.target_year === +$('evidenceYear').value,
-  );
-  $('countyDetail').innerHTML =
-    `<h3>${esc(names[selected()])}</h3>${d.some(x => x.fips === selected()) ? '' : '<span class="badge">Selected county is outside the current chart filters.</span>'}<span>Observed ${r.target_year} burden <b>${fmt(r.y)}%</b> · approximate 90% sampling margin ±${fmt(r.target_moe)} pp</span><span>Change since ${r.acs_year}: <b>${fmt(r.y - r.latest)} pp over ${r.target_year - r.acs_year} years</b></span>`;
-  table(
-    'evidenceTable',
-    [
-      'County',
-      'Target',
-      'Burden %',
-      'Change pp',
-      'Interval years',
-      'Jobs %/year',
-      'Housing %/year',
-    ],
-    d.map(r => [
-      `<button data-county="${r.fips}">${esc(names[r.fips])}</button>`,
-      r.target_year,
-      fmt(r.y),
-      fmt(r.y - r.latest),
-      r.target_year - r.acs_year,
-      fmt(r.job_growth),
-      fmt(r.housing_growth),
-    ]),
-  );
-}
-async function places() {
-  const fs = [
-    ...new Set(['compare1', 'compare2', 'compare3'].map(id => $(id).value).filter(Boolean)),
-  ];
-  const defs = [
-    ['jobs', 'Covered workplace jobs'],
-    ['real_pay', 'Real average workplace pay'],
-    ['real_income', 'Real median renter household income'],
-    ['housing', 'Total housing stock'],
-    ['burden', 'Renter burden, with approximate ACS sampling margins'],
-  ];
-  const all = fs.flatMap(f => DATA.paths.filter(r => r.fips === f));
-  let max = 110,
-    min = 90;
-  for (const f of fs) {
-    const rows = all.filter(r => r.fips === f),
-      base = rows.find(r => r.year === 2011);
-    for (const [key] of defs.slice(0, 4))
-      for (const r of rows)
-        if (r[key] != null) {
-          max = Math.max(max, (100 * r[key]) / base[key]);
-          min = Math.min(min, (100 * r[key]) / base[key]);
-        }
-  }
-  for (const [key, title] of defs) {
-    const traces = fs.map((f, i) => {
-      const rows = all.filter(r => r.fips === f),
-        base = rows.find(r => r.year === 2011),
-        full = Array.from({ length: 14 }, (_, i) => 2011 + i),
-        by = Object.fromEntries(rows.map(r => [r.year, r]));
-      return {
-        type: 'scatter',
-        mode: 'lines+markers',
-        name: names[f].split(',')[0],
-        x: full,
-        y: full.map(y =>
-          by[y] ? (key === 'burden' ? by[y][key] : (100 * by[y][key]) / base[key]) : null,
-        ),
-        connectgaps: false,
-        line: { color: colors[i], width: 2, dash: ['solid', 'dash', 'dot'][i] },
-        marker: { size: 4 },
-        error_y:
-          key === 'burden'
-            ? {
-                type: 'data',
-                array: full.map(y => by[y]?.burden_moe || 0),
-                visible: true,
-                color: colors[i],
-                thickness: 0.7,
-                width: 2,
-              }
-            : undefined,
-        hovertemplate: `${esc(names[f])}<br>%{x} · observed<br>%{y:.1f} ${key === 'burden' ? '%' : 'index (2011=100)'}<extra></extra>`,
-      };
-    });
-    await plot('path_' + key, traces, {
-      title: { text: title },
+      title: { text: `Share stretched in ${short(f)}, with survey margins` },
       showlegend: true,
-      legend: { orientation: 'h', y: 1.13, font: { size: 12 } },
-      margin: { t: 75, l: 54, b: 45, r: 15 },
-      yaxis: {
-        range: key === 'burden' ? [25, 70] : [Math.floor(min / 10) * 10, Math.ceil(max / 10) * 10],
-        title: { text: key === 'burden' ? 'Burden (%)' : 'Index, 2011 = 100' },
-        gridcolor: color('border'),
-      },
-      xaxis: { range: [2011, 2024], dtick: 3, gridcolor: color('border') },
-    });
-  }
-  table(
-    'placesTable',
+      legend: { orientation: 'h', y: -0.15 },
+      yaxis: { ticksuffix: '%' },
+      xaxis: { dtick: 2 },
+    },
+  );
+  const b0 = by[2011],
+    idx = k => ys.map(y => (by[y]?.[k] != null ? (100 * by[y][k]) / b0[k] : null));
+  await plot(
+    'countyIndex',
     [
-      'County',
-      'Year',
-      'Jobs',
-      'Real pay $',
-      'Real renter income $',
-      'Units',
-      'Burden %',
-      '90% margin pp',
-    ],
-    all.map(r => [
-      esc(names[r.fips]),
-      r.year,
-      fmt(r.jobs, 0),
-      fmt(r.real_pay, 0),
-      fmt(r.real_income, 0),
-      fmt(r.housing, 0),
-      fmt(r.burden),
-      fmt(r.burden_moe),
-    ]),
+      ['real_rent', 'Median rent', 'b', 'solid'],
+      ['real_income', 'Median renter income', 'a', 'solid'],
+      ['jobs', 'Jobs at workplaces', 'c', 'dot'],
+    ].map(([k, n, col, dash]) => ({
+      x: ys, y: idx(k), name: n, mode: 'lines+markers', connectgaps: false,
+      line: { color: v(col), width: 2.2, dash }, marker: { size: 4 },
+      hovertemplate: `${n}, %{x}: %{y:.0f}<extra></extra>`,
+    })),
+    {
+      title: { text: 'Rent, renter income and jobs, 2011 = 100, after inflation' },
+      showlegend: true,
+      legend: { orientation: 'h', y: -0.15 },
+      xaxis: { dtick: 2 },
+    },
   );
 }
-async function workers() {
-  const r = DATA.lodes.find(r => r.fips === selected() && r.year === +$('flowYear').value);
-  if (!r) {
-    $('flowFacts').textContent =
-      'Comparable LODES workplace coverage is unavailable for this county/year. Massachusetts starts in 2011.';
-    await plot('flows', [], { title: { text: 'No comparable published workplace coverage' } });
-    table('flowTable', ['Relationship', 'Primary jobs'], []);
-    return;
-  }
-  facts('flowFacts', [
-    [fmt(100 * r.inbound) + '%', 'Workplace jobs filled from outside county'],
-    [fmt(100 * r.outbound) + '%', 'Residents working outside county'],
-    [fmt(100 * r.retention) + '%', 'Resident home-work retention'],
-    [r.year, 'LODES8 · primary jobs'],
-  ]);
-  const dir = $('flowDirection').value,
-    out = dir === 'destinations',
-    den = out ? r.resident_jobs : r.work_jobs,
-    rows = [
-      ['Same county', r.internal],
-      ...r[dir].slice(0, 6).map(([f, n]) => [names[f] || `County FIPS ${f}`, n]),
-      ['Outside state / unranked residual', out ? r.out_state : r.in_state],
-    ];
-  const rest = den - rows.reduce((s, r) => s + r[1], 0);
-  if (rest > 0) rows.push(['Other within-state counties', rest]);
-  await plot(
-    'flows',
-    [
-      {
-        type: 'bar',
-        orientation: 'h',
-        x: rows.map(r => (r[1] / den) * 100),
-        y: rows.map(r => r[0].replace(' County', '')),
-        marker: { color: rows.map((_, i) => (i === 0 ? color('accent') : color('context'))) },
-        hovertemplate: `%{y}<br>%{x:.1f}% of ${out ? 'resident' : 'workplace'} primary jobs<br>${r.year} · observed LODES<extra></extra>`,
-      },
-    ],
-    {
-      title: {
-        text: `${names[selected()].split(',')[0]} · ${out ? 'workplaces of residents' : 'residences of workers'}`,
-      },
-      margin: { t: 50, b: 50, l: 185, r: 15 },
-      xaxis: { title: { text: 'Share of primary jobs (%)' }, range: [0, 100] },
-      yaxis: { autorange: 'reversed' },
-    },
-  );
+
+function countyTable() {
   table(
-    'flowTable',
-    [out ? 'Work destination' : 'Worker residence', 'Primary jobs', 'Share'],
-    rows.map(([s, n]) => [esc(s), fmt(n, 0), fmt((100 * n) / den) + '%']),
-  );
-}
-async function models() {
-  const d = results(),
-    s = scores(d);
-  if (!s) {
-    $('scores').textContent = 'No eligible held-out observations.';
-    return;
-  }
-  facts('scores', [
-    [fmt(s.mae, 2) + ' pp', 'MAE · smaller is better'],
-    [fmt(s.rmse, 2) + ' pp', 'RMSE'],
-    [(s.gain > 0 ? '+' : '') + fmt(s.gain, 2) + ' pp', 'MAE gain over persistence'],
-    [fmt(100 * s.direction) + '%', 'Change direction accuracy'],
-    [s.n, 'Held-out county-targets'],
-  ]);
-  await plot(
-    'predictions',
-    [
-      {
-        type: 'scatter',
-        mode: 'lines',
-        x: [20, 75],
-        y: [20, 75],
-        line: { color: color('muted'), dash: 'dot' },
-        hoverinfo: 'skip',
-      },
-      {
-        type: 'scatter',
-        mode: 'markers',
-        x: d.map(r => r.y),
-        y: d.map(r => r.pred),
-        customdata: d.map(r => r.fips),
-        error_y: {
-          type: 'data',
-          symmetric: false,
-          array: d.map(r => (r.hi == null ? 0 : r.hi - r.pred)),
-          arrayminus: d.map(r => (r.lo == null ? 0 : r.pred - r.lo)),
-          color: color('context'),
-          thickness: 0.7,
-          width: 1,
-        },
-        marker: { color: color('accent'), size: 7, opacity: 0.8 },
-        text: d.map(
-          r =>
-            `${names[r.fips]}<br>${r.target_year} · ${r.block}<br>Origin ${r.origin} · latest ACS ${r.acs_year}<br>${r.lo == null ? 'Interval unavailable' : `80% interval ${fmt(r.lo)}–${fmt(r.hi)}%`}`,
-        ),
-        hovertemplate: '%{text}<br>Observed %{x:.2f}%<br>Predicted %{y:.2f}%<extra></extra>',
-      },
-    ],
-    {
-      title: { text: 'Predictions should lie near the identity line' },
-      xaxis: {
-        title: { text: 'Observed burden (%)' },
-        range: [20, 75],
-        gridcolor: color('border'),
-      },
-      yaxis: {
-        title: { text: 'Predicted burden (%)' },
-        range: [20, 75],
-        gridcolor: color('border'),
-      },
-    },
-  );
-  wirePlot('predictions');
-  await plot(
-    'residuals',
-    [
-      {
-        type: 'scatter',
-        mode: 'markers',
-        x: d.map(r => r.latest),
-        y: d.map(r => r.residual),
-        customdata: d.map(r => r.fips),
-        marker: { color: color('c2'), size: 7 },
-        text: d.map(
-          r => `${names[r.fips]} · ${r.target_year}<br>Held-out prediction − observation`,
-        ),
-        hovertemplate: '%{text}<br>Latest burden %{x:.2f}%<br>Error %{y:.2f} pp<extra></extra>',
-      },
-    ],
-    {
-      title: { text: 'Where does the model over- or underpredict?' },
-      xaxis: { title: { text: 'Latest observed burden (%)' }, range: [20, 75] },
-      yaxis: {
-        title: { text: 'Prediction − observation (pp)' },
-        range: [-15, 15],
-        zeroline: true,
-        zerolinecolor: color('text'),
-        gridcolor: color('border'),
-      },
-    },
-  );
-  wirePlot('residuals');
-  table(
-    'worst',
-    ['County', 'Target', 'Observed %', 'Predicted %', 'Error pp'],
-    [...d]
-      .sort((a, b) => Math.abs(b.residual) - Math.abs(a.residual))
-      .slice(0, 8)
-      .map(r => [
-        `<button data-county="${r.fips}">${esc(names[r.fips])}</button>`,
-        r.target_year,
-        fmt(r.y),
-        fmt(r.pred),
-        fmt(r.residual),
+    'countyTable',
+    ['County', '2011', '2024', 'Change ± margin', 'Verdict', 'Rent', 'Renter income', 'Jobs'],
+    [...T.counties]
+      .sort((a, b) => b.db - a.db)
+      .map(c => [
+        `<button data-county="${c.fips}">${esc(N[c.fips])}</button>`,
+        fx(c.b0) + '%',
+        fx(c.b1) + '%',
+        `${sg(c.db)} ± ${fx(c.m_db)}`,
+        said(c),
+        sg(c.rent_pct) + '%',
+        sg(c.inc_pct) + '%',
+        sg(c.jobs_pct) + '%',
       ]),
   );
-  $('modelNote').textContent =
-    `${labels[$('model').value]} · ${experiments[$('experiment').value]} · ${s.n} held-out rows · ${$('regime').selectedOptions[0].textContent}. Signed residuals are predicted minus observed. No training diagnostics are mixed into this view. Source: ACS/QCEW/LODES/CPI. Direction tolerance ±${DATA.config.direction_tolerance} pp; changes are from the latest published ACS estimate, usually over two years.`;
-  $('intervalNote').textContent =
-    `Observed coverage ${s.coverage == null ? 'unavailable' : fmt(100 * s.coverage) + '%'}; mean interval width ${fmt(s.width)} pp, among ${s.ni} rows with calibrated intervals. ${s.n - s.ni} rows have no interval.`;
-  const years = [...new Set(d.map(r => r.target_year))].sort();
-  table(
-    'yearScores',
-    ['Target year', 'n', 'MAE pp', 'Gain pp'],
-    years.map(y => {
-      const z = scores(d.filter(r => r.target_year === y));
-      return [y, z.n, fmt(z.mae, 2), fmt(z.gain, 2)];
-    }),
-  );
+  document.querySelectorAll('[data-county]').forEach(b => (b.onclick = () => link(b.dataset.county)));
 }
-async function ablations() {
-  const model = $('model').value === 'persistence' ? 'linear' : $('model').value,
-    rows = Object.keys(experiments)
-      .map(e => [e, scores(results(model, e))])
-      .filter(r => r[1]),
-    selectedExp = $('experiment').value;
+
+const dot = (p, x, y, t) => ({
+  type: 'scatter',
+  mode: 'markers',
+  x: p.counties.map(c => c[x]),
+  y: p.counties.map(c => c[y]),
+  customdata: p.counties.map(c => c.fips),
+  text: p.counties.map(c => `${N[c.fips]}<br>${t(c)}`),
+  hovertemplate: '%{text}<extra></extra>',
+  marker: {
+    size: 10,
+    color: p.counties.map(c => v(verdict(c))),
+    line: { color: v('surface'), width: 1 },
+  },
+});
+
+async function rent() {
+  const gs = fit(T, 'gap', 'db');
+  $('rentNote').textContent =
+    `Each dot is a county, 2011–2024. Red: share rose beyond survey error. Teal: fell beyond survey error. ` +
+    `Rent grew faster than renter income in ${T.rent_outran_income} of 30 counties. Each 10 points of gap came with ` +
+    `${fx(gs.s.per10)} more points stretched (80% range ${fx(gs.s.lo)} to ${fx(gs.s.hi)}; correlation ${fx(gs.s.r, 2)}). ` +
+    `Median renter income describes whoever rents that year, so part of its rise may be a change in who rents.`;
   await plot(
-    'ablations',
+    'rentIncome',
     [
       {
-        type: 'bar',
-        orientation: 'h',
-        x: rows.map(r => r[1].mae),
-        y: rows.map(r => experiments[r[0]]),
-        text: rows.map(r => fmt(r[1].mae, 2)),
-        textposition: 'outside',
-        cliponaxis: false,
-        marker: {
-          color: rows.map(r => (r[0] === selectedExp ? color('accent') : color('context'))),
-        },
-        hovertemplate: '%{y}<br>Held-out MAE %{x:.3f} pp<extra></extra>',
+        x: [0, 65], y: [0, 65], mode: 'lines', hoverinfo: 'skip',
+        line: { color: v('muted'), dash: 'dot', width: 1 },
       },
+      dot(T, 'inc_pct', 'rent_pct', c => `Rent ${sg(c.rent_pct)}%, renter income ${sg(c.inc_pct)}%`),
     ],
     {
-      title: { text: `${labels[model]} · actual refitted experiments` },
-      margin: { t: 50, l: 155, r: 45, b: 45 },
-      xaxis: {
-        title: { text: 'Mean absolute error (pp)' },
-        range: [0, Math.max(...rows.map(r => r[1].mae)) * 1.3],
+      title: { text: 'Above the line, rent outgrew renter income' },
+      xaxis: { title: { text: 'Renter income growth, %' }, range: [0, 65] },
+      yaxis: { title: { text: 'Rent growth, %' }, range: [-5, 65] },
+    },
+  );
+  await plot(
+    'gapShare',
+    [
+      { x: gs.x, y: gs.y, mode: 'lines', hoverinfo: 'skip', line: { color: v('muted'), width: 1.5 } },
+      dot(T, 'gap', 'db', c => `Gap ${sg(c.gap)}, share ${sg(c.db)} points`),
+    ],
+    {
+      title: { text: 'Change in share stretched against the rent-income gap' },
+      xaxis: { title: { text: 'Rent growth minus income growth, log points' }, zeroline: true, zerolinecolor: v('border') },
+      yaxis: { title: { text: 'Change in share, points' }, zeroline: true, zerolinecolor: v('border') },
+    },
+  );
+  wire('rentIncome');
+  wire('gapShare');
+}
+
+async function jobs() {
+  const p = $('period').value === '2011-2019' ? E : T,
+    S = (q, y) => q.slopes.find(s => s.x === 'jobs_pct' && s.y === y),
+    js = fit(p, 'jobs_pct', 'db');
+  $('jobsNote').textContent =
+    `Slopes across the 30 counties, with 80% bootstrap ranges. Jobs are counted at workplaces, 2011–${p.j1}. ` +
+    `Per 10% more jobs the share stretched changed ${sg(js.s.per10)} points (${fx(js.s.lo)} to ${fx(js.s.hi)}); ` +
+    (js.s.resolved ? 'the range excludes zero. ' : 'the range includes zero, so this does not resolve. ') +
+    'These are associations, not causes.';
+  const per = [T, E],
+    nm = ['2011–2024', '2011–2019'],
+    rows = [['rent_pct', 'Rent'], ['inc_pct', 'Renter income']];
+  await plot(
+    'jobSlopes',
+    per.map((q, i) => ({
+      type: 'scatter',
+      mode: 'markers',
+      orientation: 'h',
+      name: nm[i],
+      y: rows.map(r => r[1]),
+      x: rows.map(r => S(q, r[0]).per10),
+      error_x: {
+        type: 'data', symmetric: false,
+        array: rows.map(r => S(q, r[0]).hi - S(q, r[0]).per10),
+        arrayminus: rows.map(r => S(q, r[0]).per10 - S(q, r[0]).lo),
+        color: v(i ? 'c' : 'a'), thickness: 2, width: 0,
       },
+      marker: { size: 11, color: v(i ? 'c' : 'a'), opacity: q === p ? 1 : 0.45 },
+      offsetgroup: i,
+      hovertemplate: `${nm[i]}: %{y} %{x:+.1f}% per 10% more jobs<extra></extra>`,
+    })),
+    {
+      title: { text: 'Change per 10% more jobs, %' },
+      showlegend: true,
+      legend: { orientation: 'h', y: -0.2 },
+      margin: { t: 44, b: 70, l: 110, r: 16 },
+      xaxis: { zeroline: true, zerolinecolor: v('muted'), ticksuffix: '%' },
       yaxis: { autorange: 'reversed' },
+      scattermode: 'group',
     },
   );
-  const all = rows.find(r => r[0] === 'all')[1],
-    without = rows.find(r => r[0] === 'employment')[1],
-    delta = all.mae - without.mae;
-  $('ablationHeadline').textContent =
-    `Commuting ${delta < 0 ? 'reduces' : 'increases'} MAE by ${fmt(Math.abs(delta), 3)} pp in this view.`;
-  const pair = DATA.paired.find(
-    r => r.regime === $('regime').value && r.model === model && r.experiment === 'employment',
-  );
-  $('pairedNote').textContent =
-    `Final-block paired difference (all − employment): ${fmt(pair.delta, 3)} pp, 80% interval [${fmt(pair.lo, 3)}, ${fmt(pair.hi, 3)}], ${pair.clusters} county clusters. ${pair.hi < 0 ? 'This interval supports a commuting gain within this sample.' : pair.lo > 0 ? 'This interval supports worse prediction after adding commuting.' : 'This interval includes zero; added predictive value is inconclusive.'} ${$('model').value === 'persistence' ? 'Ablations show panel regression because persistence has no fitted feature groups.' : ''}`;
-  table(
-    'ablationTable',
-    [
-      'Feature set',
-      'n',
-      'MAE pp',
-      'Gain over persistence pp',
-      'All − this set, final county-equal pp (80% CI)',
-    ],
-    rows.map(([e, s]) => {
-      const p = DATA.paired.find(
-        r => r.regime === $('regime').value && r.model === model && r.experiment === e,
-      );
-      return [
-        esc(experiments[e]),
-        s.n,
-        fmt(s.mae, 3),
-        fmt(s.gain, 3),
-        p ? `${fmt(p.delta, 3)} [${fmt(p.lo, 3)}, ${fmt(p.hi, 3)}]` : '0 (reference)',
-      ];
-    }),
-  );
-  const on = selectedExp === 'all';
-  $('commutingToggle').setAttribute('aria-pressed', on);
-  $('commutingToggle').textContent = on ? 'Commuting: included' : 'Compare with commuting included';
-}
-function scenarioInputs() {
-  const row = DATA.scenarios.rows.find(r => r.fips === selected());
-  const defs = ['real_rent', 'real_income', 'job_growth', 'housing_growth'];
-  $('scenarioInputs').innerHTML =
-    `<h3>${esc(names[selected()])}</h3><p class="note">Observed input periods: ACS ${row.acs_year}, QCEW ${row.qcew_year}, LODES ${row.lodes_year}.</p>` +
-    defs
-      .map(f => {
-        const [lo, hi] = DATA.scenarios.ranges[f],
-          min = f.startsWith('real') ? lo * 0.7 : lo - 5,
-          max = hi * 1.3 + 5;
-        return `<div class="scenario-control"><label for="s_${f}">${featureNames[f]}: <b id="v_${f}">${fmt(row[f])}</b></label><input id="s_${f}" data-feature="${f}" type="range" min="${min}" max="${max}" step="any" value="${row[f]}"><small>Historical fitting range ${fmt(lo)} to ${fmt(hi)} · observed ${fmt(row[f])}</small></div>`;
-      })
-      .join('');
-  $('scenarioInputs')
-    .querySelectorAll('input')
-    .forEach(el => (el.oninput = () => scenario()));
-  return scenario();
-}
-async function scenario() {
-  const row = DATA.scenarios.rows.find(r => r.fips === selected()),
-    values = {};
-  $('scenarioInputs')
-    .querySelectorAll('input')
-    .forEach(el => {
-      const f = el.dataset.feature;
-      values[f] = +el.value;
-      $('v_' + f).textContent = fmt(+el.value, f.startsWith('real') ? 0 : 1);
-    });
-  const x = Model.adjust(row, values),
-    linear = Model.evaluate(DATA.scenarios.linear, x),
-    trees = Model.evaluate(DATA.scenarios.trees, x),
-    baseL = Model.evaluate(DATA.scenarios.linear, row),
-    baseT = Model.evaluate(DATA.scenarios.trees, row);
-  facts('scenarioResults', [
-    [fmt(linear) + '%', 'Panel regression · ' + fmt(linear - baseL) + ' pp from observed inputs'],
-    [fmt(trees) + '%', 'Boosted trees · ' + fmt(trees - baseT) + ' pp from observed inputs'],
-  ]);
-  const S = DATA.scenarios.support,
-    fs = DATA.scenarios.linear.features,
-    z = fs.map((f, i) => ((x[f] ?? S.impute[i]) - S.mean[i]) / S.scale[i]),
-    distance = Math.min(...S.z.map(a => Math.sqrt(a.reduce((s, v, i) => s + (v - z[i]) ** 2, 0)))),
-    outside = fs.filter(
-      f => x[f] < DATA.scenarios.ranges[f][0] || x[f] > DATA.scenarios.ranges[f][1],
-    );
-  $('support').textContent =
-    outside.length || distance > S.threshold
-      ? `Unsupported-input warning: ${outside.length ? 'outside historical range: ' + outside.map(f => featureNames[f]).join(', ') + '. ' : ''}Nearest fitting-vector distance ${fmt(distance, 2)}; historical 95th-percentile threshold ${fmt(S.threshold, 2)}. Prediction is extrapolative.`
-      : `Within the declared support heuristic. Nearest fitting-vector distance ${fmt(distance, 2)}; threshold ${fmt(S.threshold, 2)}. This does not establish causal plausibility.`;
   await plot(
-    'scenarioChart',
+    'jobShare',
+    [
+      { x: js.x, y: js.y, mode: 'lines', hoverinfo: 'skip', line: { color: v('muted'), width: 1.5 } },
+      dot(p, 'jobs_pct', 'db', c => `Jobs ${sg(c.jobs_pct)}%, share ${sg(c.db)} points`),
+    ],
+    {
+      title: { text: `Job growth and change in share stretched, ${$('period').selectedOptions[0].text.split(',')[0]}` },
+      xaxis: { title: { text: `Job growth, 2011–${p.j1}, %` } },
+      yaxis: { title: { text: 'Change in share, points' }, zeroline: true, zerolinecolor: v('border') },
+    },
+  );
+  wire('jobShare');
+}
+
+async function forecast() {
+  const o = G.one_year,
+    k = $('block').value;
+  $('noiseNote').textContent =
+    `Across ${o.n} one-year changes, a county's share moved ${fx(o.rms_change)} points in a typical year (root mean square). ` +
+    `Sampling error alone would move it ${fx(o.rms_noise)}. One county's year-to-year movement is no larger than survey noise, ` +
+    `so a forecast has nothing to follow. Over 2011–2024, about ${fx(100 * T.noise.real_share, 0)}% of the spread between counties is real.`;
+  const xs = Array.from({ length: 121 }, (_, i) => -15 + i / 4),
+    phi = (x, s) => Math.exp(-0.5 * (x / s) ** 2) / (s * Math.sqrt(2 * Math.PI)),
+    dens = xs.map(x => o.pairs.reduce((a, p) => a + phi(x, p.s), 0) / o.pairs.length);
+  await plot(
+    'noise',
     [
       {
-        type: 'bar',
-        x: ['Panel regression', 'Boosted trees'],
-        y: [linear, trees],
-        marker: { color: colors.slice(0, 2) },
-        hovertemplate: '%{x}<br>Conditional scenario %{y:.2f}%<br>Target 2024<extra></extra>',
+        type: 'histogram', x: o.pairs.map(p => p.d), histnorm: 'probability density',
+        xbins: { start: -15, end: 15, size: 1 }, name: 'Observed one-year changes',
+        marker: { color: mix(v('surface'), v('a'), 0.55), line: { color: v('surface'), width: 1 } },
+        hovertemplate: '%{x} points<extra>Observed</extra>',
+      },
+      {
+        x: xs, y: dens, mode: 'lines', name: 'Survey error alone',
+        line: { color: v('b'), width: 2.5 }, hoverinfo: 'skip',
       },
     ],
     {
-      margin: { t: 20, b: 45, l: 50, r: 15 },
-      yaxis: { title: { text: 'Burden (%)' }, range: [0, 100] },
-      shapes: [
-        {
-          type: 'line',
-          xref: 'paper',
-          x0: 0,
-          x1: 1,
-          y0: row.y,
-          y1: row.y,
-          line: { color: color('text'), dash: 'dot' },
-        },
-      ],
-      annotations: [
-        {
-          xref: 'paper',
-          x: 1,
-          y: row.y,
-          text: 'Observed 2024',
-          showarrow: false,
-          yshift: 12,
-          font: { size: 12 },
-        },
-      ],
+      title: { text: 'One-year changes in a county share, against survey error alone' },
+      showlegend: true,
+      legend: { orientation: 'h', y: 1, yanchor: 'bottom', x: 0 },
+      margin: { t: 70, b: 56, l: 40, r: 16 },
+      bargap: 0,
+      xaxis: { title: { text: 'Change from the year before, points' }, range: [-15, 15] },
+      yaxis: { title: { text: 'Density' }, showticklabels: false },
     },
   );
-}
-function calculator() {
-  const income = +$('calcIncome').value,
-    cost = +$('calcCost').value,
-    gi = +$('calcIncomeGrowth').value / 100,
-    gc = +$('calcCostGrowth').value / 100;
-  if (!(income > 0 && cost >= 0 && gi > -0.999 && gc > -0.999)) {
-    $('calcOutput').textContent = 'Enter positive income, nonnegative cost and growth above −100%.';
-    return;
-  }
-  table(
-    'calcOutput',
-    ['Assumed year', 'Annual income $', 'Monthly gross cost $', 'Housing-cost share'],
-    [0, 1, 2, 3].map(k => [
-      k,
-      fmt(income * (1 + gi) ** k, 0),
-      fmt(cost * (1 + gc) ** k, 0),
-      fmt(((1200 * cost) / income) * ((1 + gc) / (1 + gi)) ** k) + '%',
-    ]),
-  );
-}
-function methods() {
-  table(
-    'dictionary',
-    ['Group', 'Feature', 'Origin rule'],
-    Object.entries(DATA.config.groups).flatMap(([g, fs]) =>
-      fs.map(f => [
-        g,
-        featureNames[f],
-        g === 'employment'
-          ? 'QCEW t−2; growth vs t−3'
-          : g === 'commuting'
-            ? 'LODES t−4'
-            : 'Latest ACS ≤ t−1',
-      ]),
+  const M = D.metrics.filter(
+      r => r.regime === 'temporal' && r.experiment === 'all' && r.block === k && !r.weighted,
     ),
-  );
-  const total = DATA.sources.reduce((s, r) => s + r.bytes, 0);
-  $('coverageText').textContent =
-    `${DATA.paths.filter(r => r.burden != null).length} ACS county-years; 2011–2024 except 2020. Fixed 2011 top-ten selection per state. ${DATA.lodes.length} LODES county-years, 2008–2019; Massachusetts coverage starts in 2011. Raw cache ${(total / 1e9).toFixed(2)} GB; streamed in 300,000-row chunks. No targets interpolated. Historical publication dates are unavailable; lags are conservative assumptions. Last-Modified is not treated as a release date.`;
-  table(
-    'sourceTable',
-    ['Source', 'Definition / access'],
+    B = G.baselines.score.filter(r => r.block === k && r.model !== 'persistence'),
+    rows = [...M.map(r => [r.model, r.mae]), ...B.map(r => [r.model, r.mae])].sort((a, b) => a[1] - b[1]),
+    late = m => m === 'mean3' || m === 'pooled';
+  await plot(
+    'board',
     [
-      [
-        '<a href="https://www.census.gov/programs-surveys/acs/data/summary-file.html">Census ACS</a>',
-        'Official one-year published counts, medians and margins',
-      ],
-      [
-        '<a href="https://www.bls.gov/cew/">BLS QCEW</a>',
-        'Covered workplace jobs; average annual pay; private broad industries',
-      ],
-      [
-        '<a href="https://lehd.ces.census.gov/data/lodes/LODES8/LODESTechDoc8.4.pdf">Census LODES8</a>',
-        'JT01 primary jobs; WAC/RAC totals and within-state OD',
-      ],
-      [
-        '<a href="https://fred.stlouisfed.org/series/CPIAUCNS">FRED / BLS CPI-U</a>',
-        'Annual average of twelve months; 2023 monetary base',
-      ],
-      [
-        '<a href="https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/State_County/MapServer">Census TIGERweb</a>',
-        'Simplified official county geometry; stable sampled county boundaries',
-      ],
-      [
-        '<a href="downloads/manifest.json">Object-level provenance</a>',
-        `${DATA.sources.length} cached objects with retrieval timestamp, URL, SHA-256, file size and modification metadata`,
-      ],
+      {
+        type: 'bar', orientation: 'h',
+        x: rows.map(r => r[1]),
+        y: rows.map(r => D.labels[r[0]].replace(' (added later)', late(r[0]) ? '*' : '')),
+        text: rows.map(r => fx(r[1], 2)), textposition: 'outside', cliponaxis: false,
+        marker: {
+          color: rows.map(r => (r[0] === 'persistence' ? v('a') : late(r[0]) ? mix(v('surface'), v('c'), 0.6) : v('flat'))),
+        },
+        hovertemplate: '%{y}<br>Average miss %{x:.2f} points<extra></extra>',
+      },
+    ],
+    {
+      margin: { t: 10, b: 44, l: 250, r: 40 },
+      xaxis: { title: { text: 'Average miss, points' }, range: [0, 4.4] },
+      yaxis: { autorange: 'reversed' },
+    },
+  );
+  const n = M[0].n,
+    m3 = G.baselines.paired.find(r => r.model === 'mean3' && r.block === k);
+  $('boardNote').textContent =
+    `${n} county-years. * Added after the final test had been scored. ` +
+    `Three-year average minus carrying forward: ${sg(m3.delta_mae, 2)} points (80% range ${sg(m3.lo, 2)} to ${sg(m3.hi, 2)}). ` +
+    'The pooling model judged every county deviation from its usual level to be survey noise.';
+  const H = ['temporal', 'holdout_08', 'holdout_25', 'holdout_53'],
+    mae = (g, m) =>
+      D.metrics.find(
+        r => r.regime === g && r.experiment === 'all' && r.model === m && r.block === 'final test' && !r.weighted,
+      ).mae;
+  table(
+    'holdouts',
+    ['Scored on', 'Carry forward', 'Regression', 'Boosted trees'],
+    H.map(g => [
+      g === 'temporal' ? 'All three states' : ST[g.split('_')[1]] + ' (left out)',
+      fx(mae(g, 'persistence'), 2),
+      fx(mae(g, 'linear'), 2),
+      fx(mae(g, 'trees'), 2),
+    ]),
+  );
+  const C = D.paired.filter(r => r.experiment === 'employment'),
+    t = C.filter(r => r.regime === 'temporal'),
+    h = C.filter(r => r.regime !== 'temporal');
+  $('commuting').innerHTML =
+    t
+      .map(
+        r =>
+          `<p><b>${esc(D.labels[r.model])}:</b> ${r.delta < 0 ? 'commuting lowered' : 'commuting raised'} the average miss by ${fx(Math.abs(r.delta), 2)} points (80% range ${sg(r.lo, 2)} to ${sg(r.hi, 2)}).</p>`,
+      )
+      .join('') +
+    `<p>With a whole state left out, commuting raised the average miss in ${h.filter(r => r.delta > 0).length} of ${h.length} cases; in ${h.filter(r => r.lo > 0).length} the whole 80% range is above zero.</p>`;
+}
+
+function sources() {
+  table(
+    'sources',
+    ['Source', 'Used for'],
+    [
+      ['<a href="https://www.census.gov/programs-surveys/acs/data/summary-file.html">Census ACS one-year</a>', 'Share stretched, rent, renter income, population, housing units, survey margins'],
+      ['<a href="https://www.bls.gov/cew/">BLS QCEW</a>', 'Jobs and average pay at workplaces'],
+      ['<a href="https://lehd.ces.census.gov/data/lodes/LODES8/LODESTechDoc8.4.pdf">Census LODES8</a>', 'Where workers live and work, primary jobs'],
+      ['<a href="https://fred.stlouisfed.org/series/CPIAUCNS">BLS CPI-U via FRED</a>', 'Inflation adjustment, annual average'],
+      ['<a href="https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/State_County/MapServer">Census TIGERweb</a>', 'County boundaries'],
+      ['<a href="downloads/manifest.json">Source checksums</a>', `${D.sources.length} downloaded files with retrieval time, size and SHA-256`],
     ],
   );
 }
-async function render() {
-  window.RENDERED = false;
-  await Promise.all([evidence(), places(), workers(), models(), ablations()]);
-  await scenarioInputs();
-  document
-    .querySelectorAll('[data-county]')
-    .forEach(b => (b.onclick = () => link(b.dataset.county)));
-  window.RENDERED = true;
-}
+
 async function start() {
   try {
+    window.RENDERED = false;
     const r = await fetch('data.json');
-    if (!r.ok) throw Error(`Research data HTTP ${r.status}`);
-    DATA = await r.json();
-    window.DATA = DATA;
-    DATA.sample.forEach(r => (names[r.fips] = r.name));
-    const countyRows = DATA.sample
+    if (!r.ok) throw Error(`data.json HTTP ${r.status}`);
+    D = await r.json();
+    window.D = D;
+    G = D.gap;
+    T = G.periods.find(p => p.y1 === 2024);
+    E = G.periods.find(p => p.y1 === 2019);
+    D.sample.forEach(r => (N[r.fips] = r.name));
+    $('county').innerHTML = D.sample
       .map(r => [r.fips, r.name])
-      .sort((a, b) => a[1].localeCompare(b[1]));
-    options('county', countyRows);
-    $('county').value = '53033';
-    options(
-      'evidenceYear',
-      DATA.config.evaluation_years.map(y => [y, y]),
-    );
-    $('evidenceYear').value = '2024';
-    options(
-      'flowYear',
-      [...new Set(DATA.lodes.map(r => r.year))].sort((a, b) => b - a).map(y => [y, y]),
-    );
-    for (const y of DATA.config.evaluation_years)
-      $('modelYear').add(new Option(`${y} · ${y >= 2023 ? 'final test' : 'development'}`, y));
-    for (let i = 1; i <= 3; i++) {
-      $('compareControls').insertAdjacentHTML(
-        'beforeend',
-        `<label>County ${i}<select id="compare${i}"></select></label>`,
-      );
-      options('compare' + i, [['', 'None'], ...countyRows]);
-      $('compare' + i).value = ['53033', '08031', '25025'][i - 1];
-    }
-    $('compareCharts').innerHTML = ['jobs', 'real_pay', 'real_income', 'housing', 'burden']
-      .map(k => `<div id="path_${k}" class="chart"></div>`)
+      .sort((a, b) => a[1].localeCompare(b[1]))
+      .map(([f, n]) => `<option value="${f}">${esc(n)}</option>`)
       .join('');
-    DATA.scientificPanel = DATA.predictions.filter(
-      r => r.regime === 'temporal' && r.model === 'persistence',
-    );
-    restore();
-    methods();
-    calculator();
-    await hero();
-    await render();
-    for (const id of [
-      'county',
-      'evidenceYear',
-      'region',
-      'regime',
-      'model',
-      'modelYear',
-      'weight',
-      'stratum',
-      'experiment',
-      'flowYear',
-      'flowDirection',
-      'compare1',
-      'compare2',
-      'compare3',
-    ])
-      $(id).onchange = () => {
-        save();
-        render().catch(fail);
-      };
-    $('search').oninput = () => evidence().catch(fail);
-    $('commutingToggle').onclick = () => {
-      $('experiment').value = $('experiment').value === 'all' ? 'employment' : 'all';
-      save();
-      Promise.all([models(), ablations()]).catch(fail);
-    };
-    $('scenarioReset').onclick = scenarioInputs;
-    ['calcIncome', 'calcCost', 'calcIncomeGrowth', 'calcCostGrowth'].forEach(
-      id => ($(id).oninput = calculator),
-    );
-    $('reset').onclick = () => {
-      history.replaceState(null, '', location.pathname + '#evidence');
-      location.reload();
-    };
+    const q = new URL(location.href).searchParams.get('county');
+    $('county').value = N[q] ? q : '53067';
+    const up = T.counties.filter(c => c.verdict !== 'within noise').length;
+    $('countiesTitle').textContent = `${up} of 30 counties changed by more than the survey can miss`;
+    await summary();
+    await counties();
+    countyTable();
+    await rent();
+    await jobs();
+    await forecast();
+    sources();
+    $('county').onchange = () => link($('county').value);
+    $('period').onchange = () => jobs().catch(fail);
+    $('block').onchange = () => forecast().catch(fail);
     $('status').textContent = '';
+    window.RENDERED = true;
   } catch (e) {
     fail(e);
   }
 }
 function fail(e) {
   console.error(e);
-  $('status').textContent =
-    `Research view unavailable: ${e.message}. Serve this directory over HTTP; see README.`;
+  $('status').textContent = `Could not load the data: ${e.message}. Serve this folder over HTTP; see the README.`;
 }
 start();

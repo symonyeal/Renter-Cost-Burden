@@ -1,4 +1,10 @@
-"""Exercise static research controls in Edge, desktop/mobile, under a repository subpath."""
+"""Drive the static site in installed Microsoft Edge, desktop and mobile, under a subpath.
+
+Legend
+  u    site URL under /site/      g   gap.json as written by analysis.gap
+  e    console errors and page exceptions; x failed requests; k checks passed
+  w    wait for the page's RENDERED flag
+"""
 import functools
 import json
 import threading
@@ -11,140 +17,90 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class Handler(SimpleHTTPRequestHandler):
-    """Quiet HTTP transport for the committed site; no application backend."""
+    """Quiet static file server; the site has no backend."""
 
     def log_message(self, *args):
         pass
 
 
 def run():
-    """Assert substantive state changes, exact predictors, HTTP assets and viewport integrity."""
-    server = ThreadingHTTPServer(('127.0.0.1', 0),
-                                functools.partial(Handler, directory=str(ROOT)))
-    threading.Thread(target=server.serve_forever, daemon=True).start()
-    url = f'http://127.0.0.1:{server.server_port}/site/'
-    errors, failed, checks = [], [], []
+    """Check the numbers shown against gap.json, the controls, downloads and mobile width."""
+    g = json.loads((ROOT / 'data/processed/gap.json').read_text())
+    t = next(p for p in g['periods'] if p['y1'] == 2024)
+    s = ThreadingHTTPServer(('127.0.0.1', 0), functools.partial(Handler, directory=str(ROOT)))
+    threading.Thread(target=s.serve_forever, daemon=True).start()
+    u = f'http://127.0.0.1:{s.server_port}/site/'
+    e, x, k = [], [], []
     with sync_playwright() as p:
         b = p.chromium.launch(channel='msedge', headless=True)
-        page = b.new_page(viewport={'width': 1440, 'height': 1000})
-        page.on('pageerror', lambda e: errors.append(str(e)))
-        page.on('console', lambda e: errors.append(e.text) if e.type == 'error' else None)
-        page.on('requestfailed', lambda r: failed.append(r.url))
-        page.goto(url)
-        page.wait_for_function('window.RENDERED === true', timeout=120000)
-        assert page.locator('#status').inner_text() == ''
-        observed = page.evaluate('scores(results())')
-        expected = page.evaluate("DATA.metrics.find(r => r.regime==='temporal' && "
-                                 "r.experiment==='all' && r.model==='linear' && "
-                                 "r.block==='final test' && !r.weighted)")
-        assert abs(observed['mae'] - expected['mae']) < 1e-7
-        assert abs(observed['rmse'] - expected['rmse']) < 1e-7
-        checks.append('Initial static bundle and all plots load below /site/ subpath')
-        page.screenshot(path=str(ROOT / 'qa/desktop.png'), full_page=False)
-
-        def choose(id, value):
-            page.select_option('#' + id, value)
-            page.wait_for_function('window.RENDERED === true', timeout=60000)
-
-        choose('county', '08031')
-        assert 'Denver' in page.locator('#countyDetail').inner_text()
-        assert 'Denver' in page.locator('#scenarioInputs').inner_text()
-        choose('region', '08')
-        assert page.evaluate("document.getElementById('scatter').data[0].x.length") == 10
-        page.locator('#search').fill('Pueblo')
-        page.wait_for_function("document.getElementById('scatter').data[0].x.length === 1")
-        page.locator('#search').fill('no matching county')
-        page.wait_for_function("document.getElementById('scatter').data[0].x.length === 0")
-        assert 'No counties' in page.locator('#evidenceNote').inner_text()
-        page.locator('#search').fill('')
-        choose('evidenceYear', '2021')
-        assert '2019→2021' in page.locator('#evidenceNote').inner_text()
-        checks.append('Linked county, state, year, search and empty evidence state')
-        choose('compare1', '08031')
-        choose('compare2', '25025')
-        choose('compare3', '')
-        assert page.evaluate("document.getElementById('path_jobs').data.length") == 2
-        checks.append('Two-county paths update with common scales and ACS gap')
-        choose('county', '25025')
-        choose('flowYear', '2008')
-        assert 'unavailable' in page.locator('#flowFacts').inner_text()
-        assert page.evaluate("document.getElementById('flows').data.length") == 0
-        choose('flowYear', '2019')
-        choose('flowDirection', 'origins')
-        assert 'Primary jobs' in page.locator('#flowTable').inner_text()
-        checks.append('Worker direction/year and missing Massachusetts coverage state')
-        choose('regime', 'holdout_08')
-        choose('model', 'trees')
-        choose('modelYear', '2024')
-        assert page.evaluate("document.getElementById('predictions').data[1].x.length") == 10
-        choose('weight', 'renters')
-        choose('stratum', 'large')
-        assert page.evaluate("document.getElementById('predictions').data[1].x.length") == 5
-        choose('stratum', 'all')
-        choose('experiment', 'housing')
-        page.locator('#commutingToggle').click()
-        page.wait_for_function("document.getElementById('experiment').value === 'all'")
-        page.locator('#commutingToggle').click()
-        page.wait_for_function("document.getElementById('experiment').value === 'employment'")
-        choose('model', 'persistence')
-        checks.append('Regime/model/year/weight/stratum and separately trained ablation controls')
-        old = page.locator('#scenarioResults').inner_text()
-        page.locator('#s_real_rent').evaluate(
-            "e => {e.value=+e.value*1.2;"
-            "e.dispatchEvent(new Event('input',{bubbles:true}));}")
-        page.wait_for_function("document.getElementById('scenarioResults').innerText !== "
-                               + json.dumps(old))
-        page.locator('#scenarioReset').click()
-        page.wait_for_function("document.getElementById('scenarioResults').innerText === "
-                               + json.dumps(old))
-        page.locator('#calcIncome').fill('40000')
-        assert '54.0%' in page.locator('#calcOutput').inner_text()
-        page.locator('#calcIncome').fill('0')
-        assert 'Enter positive' in page.locator('#calcOutput').inner_text()
-        checks.append('Conditional scenario, reset, household arithmetic and invalid-input state')
-        saved = page.url
-        page.locator('nav a[href="#models"]').click()
-        assert page.url.endswith('#models')
-        page.reload()
-        page.wait_for_function('window.RENDERED === true', timeout=60000)
-        assert page.locator('#county').input_value() == '25025'
-        assert page.locator('#regime').input_value() == 'holdout_08'
-        assert page.locator('#experiment').input_value() == 'employment'
-        assert 'county=25025' in saved
-        checks.append('Shareable URL restores county and principal filters')
-        for a in page.locator('a[download]').all():
-            response = page.request.get(url + a.get_attribute('href'))
-            assert response.status == 200 and len(response.body()) > 0
-        checks.append('Every offered download returns nonempty HTTP 200')
-        page.locator('#county').focus()
-        page.keyboard.press('ArrowDown')
-        page.keyboard.press('Enter')
-        page.wait_for_function('window.RENDERED === true', timeout=60000)
-        page.locator('#region').focus()
-        page.keyboard.press('Tab')
-        assert page.evaluate('document.activeElement.id') == 'search'
-        checks.append('Native select keyboard operation and labelled input tab sequence')
-        page.locator('#reset').click()
-        page.wait_for_function('window.RENDERED === true', timeout=60000)
-        assert page.locator('#county').input_value() == '53033'
-        assert '?' not in page.url
-        checks.append('Global reset clears URL filters; native section hash survives reload')
-        page.set_viewport_size({'width': 390, 'height': 844})
-        page.goto(url)
-        page.wait_for_function('window.RENDERED === true', timeout=60000)
-        assert page.evaluate('document.documentElement.scrollWidth <= innerWidth + 1')
-        page.screenshot(path=str(ROOT / 'qa/mobile.png'), full_page=False)
-        page.locator('#models').scroll_into_view_if_needed()
-        page.screenshot(path=str(ROOT / 'qa/mobile-models.png'), full_page=False)
-        checks.append('390px mobile viewport has no horizontal document overflow')
-        assert not errors, errors
-        assert not failed, failed
-        checks.append('No browser console errors, page exceptions or failed requests')
+        for scheme in ['light', 'dark']:
+            page = b.new_page(viewport={'width': 1440, 'height': 1000}, color_scheme=scheme)
+            page.on('pageerror', lambda m: e.append(str(m)))
+            page.on('console', lambda m: e.append(m.text) if m.type == 'error' else None)
+            page.on('requestfailed', lambda r: x.append(r.url))
+            w = lambda pg=page: pg.wait_for_function('window.RENDERED === true', timeout=120000)
+            page.goto(u)
+            w()
+            page.screenshot(path=str(ROOT / f'qa/desktop-{scheme}.png'), full_page=True)
+            if scheme == 'dark':
+                page.close()
+                continue
+            assert page.locator('#status').inner_text() == ''
+            pooled = {r['year']: r for r in g['pooled']}
+            tiles = page.locator('#tiles').inner_text()
+            assert f"{pooled[2024]['b']:.1f}%" in tiles
+            moved = sum(c['verdict'] != 'within noise' for c in t['counties'])
+            assert f'{moved} of 30' in tiles
+            assert f"{pooled[2011]['b']:.1f}%" in page.locator('#answer').inner_text()
+            k.append('Headline numbers match gap.json')
+            c = next(c for c in t['counties'] if c['fips'] == '53067')
+            card = page.locator('#card').inner_text()
+            assert 'Thurston' in card and f"{c['b1']:.1f}%" in card
+            page.locator('#map path[data-f="08035"]').click()
+            page.wait_for_function("document.getElementById('card').innerText.includes('Douglas')")
+            assert 'county=08035' in page.url
+            page.select_option('#county', '25001')
+            page.wait_for_function(
+                "document.getElementById('card').innerText.includes('Barnstable')")
+            k.append('Map click and county list update the county card and URL')
+            page.reload()
+            w()
+            assert page.locator('#county').input_value() == '25001'
+            k.append('County restores from the URL')
+            n = page.evaluate("document.getElementById('jobShare').data[1].x.length")
+            assert n == 30
+            old = page.locator('#jobsNote').inner_text()
+            page.select_option('#period', '2011-2019')
+            page.wait_for_function("document.getElementById('jobsNote').innerText !== "
+                                   + json.dumps(old))
+            assert '2011–2019' in page.locator('#jobsNote').inner_text()
+            k.append('Period control redraws the jobs charts')
+            final = page.evaluate("document.getElementById('board').data[0].x")
+            page.select_option('#block', 'development')
+            page.wait_for_function("JSON.stringify(document.getElementById('board').data[0].x)"
+                                   " !== " + json.dumps(json.dumps(final)))
+            k.append('Scoreboard switches between final test and earlier years')
+            assert page.locator('#countyTable tbody tr').count() == 30
+            assert page.locator('#holdouts tbody tr').count() == 4
+            k.append('County table has 30 rows; holdout table has 4')
+            for a in page.locator('a[download]').all():
+                r = page.request.get(u + a.get_attribute('href'))
+                assert r.status == 200 and len(r.body()) > 0, a.get_attribute('href')
+            k.append('Every download returns a nonempty HTTP 200')
+            page.set_viewport_size({'width': 390, 'height': 844})
+            page.goto(u)
+            w()
+            assert page.evaluate('document.documentElement.scrollWidth <= innerWidth + 1')
+            page.screenshot(path=str(ROOT / 'qa/mobile.png'), full_page=False)
+            k.append('390 px mobile width has no horizontal overflow')
+            page.close()
         b.close()
-    server.shutdown()
-    report = {'browser': 'installed Microsoft Edge (Chromium)', 'checks': checks,
-              'console_errors': errors, 'request_failures': failed}
-    (ROOT / 'qa/browser.json').write_text(json.dumps(report, indent=2))
+    s.shutdown()
+    assert not e, e
+    assert not x, x
+    k.append('No console errors, page exceptions or failed requests, light and dark')
+    report = {'browser': 'installed Microsoft Edge (Chromium)', 'checks': k}
+    (ROOT / 'qa/browser.json').write_text(json.dumps(report, indent=2) + '\n')
     print(json.dumps(report, indent=2))
 
 
