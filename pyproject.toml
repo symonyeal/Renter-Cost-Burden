@@ -1,7 +1,7 @@
 [project]
 name = "prosperity-gap"
 version = "0.1.0"
-description = "Release-aware prediction of county renter cost burden from housing, employment and commuting data."
+description = "Rent, renter income and jobs in 30 counties of CO, MA and WA, 2011-2024, with survey-error checks and release-aware forecasts."
 requires-python = ">=3.14"
 
 [tool.pytest.ini_options]

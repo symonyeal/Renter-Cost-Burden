@@ -10,14 +10,25 @@ import numpy as np
 import pandas as pd
 from plotly.offline import get_plotlyjs
 
-from analysis.data import OUT, ROOT, C, source_manifest, write
+from analysis.data import OUT, ROOT, C, write
 from analysis.models import metrics
 
 SITE = ROOT / C['paths']['site']
 DOWNLOADS = ['acs.csv', 'panel.csv', 'predictions.csv', 'metrics.json', 'paired.json',
+             'gap.json', 'baselines.csv', 'comparison.json',
              'manifest.json', 'sample.csv', 'lodes.json', 'qcew.csv', 'exclusions.json',
              'calibration.csv']
 STATE = {v[0]: v[1] for v in C['states'].values()}
+LABEL = {'persistence': 'Carry the last published value forward',
+         'linear': 'Regression on housing, jobs and commuting',
+         'trees': 'Boosted trees on the same inputs',
+         'mean3': 'Average of the last three published years (added later)',
+         'pooled': 'Partial pooling across counties (added later)'}
+INPUTS = {'core': 'Past share only', 'housing': '+ rent, income, housing stock',
+          'employment': '+ jobs and pay', 'all': '+ commuting (everything)',
+          'no_housing': 'Everything except housing', 'no_employment': 'Everything except jobs'}
+KEEP = ['fips', 'state', 'target_year', 'regime', 'experiment', 'model', 'block', 'pred', 'y',
+        'latest', 'lo', 'hi']
 
 
 def clean(d):
@@ -35,114 +46,213 @@ def certify(a, p):
         assert (p[c] <= p.origin).all(), c
 
 
-def support(fs, train):
-    """Nearest-neighbour support heuristic: threshold is the 95th percentile of NN distances."""
-    A = train[fs].fillna(train[fs].median()).to_numpy()
-    mu, sd = A.mean(axis=0), A.std(axis=0)
-    sd[sd == 0] = 1
-    Z = (A - mu) / sd
-    D = np.sqrt(((Z[:, None] - Z[None, :]) ** 2).sum(axis=2))
-    np.fill_diagonal(D, np.inf)
-    return {'mean': mu.tolist(), 'scale': sd.tolist(), 'z': Z.tolist(),
-            'impute': train[fs].median().tolist(),
-            'threshold': float(np.quantile(D.min(axis=1), .95))}
-
-
 def verdict(r):
     """Read an 80% paired interval for (all − base) MAE; negative favours the added group."""
-    return ('supports a gain' if r['hi'] < 0 else 'contradicts a gain' if r['lo'] > 0
-            else 'is inconclusive') + ' within this sample'
+    return ('show a gain' if r['hi'] < 0 else 'show a loss' if r['lo'] > 0
+            else 'do not resolve either way') + ' within this sample'
 
 
-def findings(final, metric_rows, paired_rows, a):
-    """Findings report; every comparative sentence is read from the exported results."""
+def pct(x):
+    """Signed one-decimal percent."""
+    return f'{round(x, 1) or 0.0:+.1f}%'
+
+
+def rng(s):
+    """80% bootstrap range of a slope."""
+    return f'{s["lo"]:.1f} to {s["hi"]:.1f}'
+
+
+def findings(final, metric_rows, paired_rows, g):
+    """Findings report; every number is read from gap.json or the exported forecasts."""
+    P = {(p['y0'], p['y1']): p for p in g['periods']}
+    t, e = P[(2011, 2024)], P[(2011, 2019)]
+    md, nz = t['median'], t['noise']
+    sl = {(s['x'], s['y']): s for s in t['slopes']}
+    se = {(s['x'], s['y']): s for s in e['slopes']}
+    pool = {r['year']: r for r in g['pooled']}
+    p0, p9, p1 = pool[2011], pool[2019], pool[2024]
+    m01 = float(np.hypot(p0['moe'], p1['moe']))
+    rows = sorted(t['counties'], key=lambda c: -c['db'])
+    moved = [c for c in rows if c['verdict'] != 'within noise']
+    county = '\n'.join(
+        f"| {c['name']} | {c['b0']:.1f}% | {c['b1']:.1f}% | {c['db']:+.1f} ± {c['m_db']:.1f} | "
+        f"{pct(c['rent_pct'])} | {pct(c['inc_pct'])} | {pct(c['jobs_pct'])} |" for c in moved)
+    every = '\n'.join(
+        f"| {c['name']} | {c['b0']:.1f}% | {c['b1']:.1f}% | {c['db']:+.1f} ± {c['m_db']:.1f} | "
+        f"{c['verdict']} | {pct(c['rent_pct'])} | {pct(c['inc_pct'])} | {c['gap']:+.1f} | "
+        f"{pct(c['jobs_pct'])} | {pct(c['pay_pct'])} |" for c in rows)
+    up = [c['name'].split(' County')[0] for c in moved if c['verdict'] == 'up']
+    dn = [c['name'].split(' County')[0] for c in moved if c['verdict'] == 'down']
+    gu = [c['gap'] for c in moved if c['verdict'] == 'up']
+    o = g['one_year']
+
     measured = {m: metrics(d) for m, d in final.groupby('model')}
     base = measured['persistence']['mae']
-    best = min(measured, key=lambda m: measured[m]['mae'])
-    lead = (f'Persistence beats both all-source fitted models, with final temporal MAE '
-            f'{base:.3f} pp.' if best == 'persistence' else
-            f'{best} has the lowest primary-model MAE, {measured[best]["mae"]:.3f} pp, '
-            f'versus persistence {base:.3f} pp.')
-    table = '\n'.join(f'| {m} | {v["mae"]:.3f} | {v["rmse"]:.3f} | {v["improvement"]:.3f} | '
-                      f'{v["coverage"]:.3f} |' for m, v in measured.items())
+    bs = {(r['model'], r['block']): r for r in g['baselines']['score']}
+    bp = {(r['model'], r['block']): r for r in g['baselines']['paired']}
+    dev = {r['model']: r for r in metric_rows if r['regime'] == 'temporal'
+           and r['experiment'] == 'all' and r['block'] == 'development' and not r['weighted']}
+    score = sorted([(LABEL[m], v['mae'], v['rmse'], dev[m]['mae']) for m, v in measured.items()]
+                   + [(LABEL[m], bs[(m, 'final test')]['mae'], bs[(m, 'final test')]['rmse'],
+                       bs[(m, 'development')]['mae']) for m in ['mean3', 'pooled']],
+                   key=lambda r: r[1])
+    board = '\n'.join(f'| {n} | {f:.2f} | {r:.2f} | {d:.2f} |' for n, f, r, d in score)
+    m3d, m3f = bp[('mean3', 'development')], bp[('mean3', 'final test')]
+    pof = bp[('pooled', 'final test')]
+
     final_rows = [r for r in metric_rows if r['regime'] == 'temporal'
                   and r['block'] == 'final test' and not r['weighted']]
-    groups = '\n'.join(f'| {r["experiment"]} | {r["model"]} | {r["mae"]:.3f} |'
-                       for r in final_rows)
+    groups = '\n'.join(f'| {INPUTS[r["experiment"]]} | {LABEL[r["model"]]} | {r["mae"]:.2f} |'
+                       for r in sorted((r for r in final_rows if r['model'] != 'persistence'),
+                                       key=lambda r: (r['model'],
+                                                      list(INPUTS).index(r['experiment']))))
     lin = {r['experiment']: r['mae'] for r in final_rows if r['model'] == 'linear'}
     commuting = {r['model']: r for r in paired_rows
                  if r['regime'] == 'temporal' and r['experiment'] == 'employment'}
     transfer = [r for r in paired_rows
                 if r['regime'].startswith('holdout_') and r['experiment'] == 'employment']
-    temporal = '\n'.join(f'- {m}: {r["delta"]:.3f} pp, 80% county-cluster interval '
-                         f'[{r["lo"]:.3f}, {r["hi"]:.3f}], {r["clusters"]} clusters; '
-                         f'{verdict(r)}.' for m, r in commuting.items())
-    holdouts = '\n'.join(f'| {STATE[r["regime"].split("_")[1]]} | {r["model"]} | '
-                         f'{r["delta"]:.3f} | [{r["lo"]:.3f}, {r["hi"]:.3f}] |'
+    temporal = '\n'.join(
+        f'- {LABEL[m]}: {r["delta"]:+.2f} points (80% range {r["lo"]:+.2f} to {r["hi"]:+.2f}, '
+        f'{r["clusters"]} counties); the data {verdict(r)}.' for m, r in commuting.items())
+    holdouts = '\n'.join(f'| {STATE[r["regime"].split("_")[1]]} | {LABEL[r["model"]]} | '
+                         f'{r["delta"]:+.2f} | {r["lo"]:+.2f} to {r["hi"]:+.2f} |'
                          for r in transfer)
-    more = 'raises' if lin['employment'] > lin['housing'] else 'lowers'
-    less = 'lowers' if lin['no_employment'] < lin['all'] else 'raises'
-    signs = ', '.join(f"{'improves' if r['delta'] < 0 else 'worsens'} {m}"
-                      for m, r in commuting.items())
-    positive = sum(r['delta'] > 0 for r in transfer)
-    simple = ('persistence beats both all-source models' if best == 'persistence'
-              else f'{best} beats persistence')
-    housing = 'lower' if lin['housing'] < base else 'higher'
+    worse = sum(r['delta'] > 0 for r in transfer)
+    sure = sum(r['lo'] > 0 for r in transfer)
+    cell = lambda s, u: f'{s["per10"]:+.1f}{u} ({rng(s)})'
+    jobs = '\n'.join(f'| {n} | {cell(sl[("jobs_pct", k)], u)} | {cell(se[("jobs_pct", k)], u)} |'
+                     for n, k, u in [('Rent', 'rent_pct', '%'), ('Renter income', 'inc_pct', '%'),
+                                     ('Share stretched, points', 'db', '')])
     return f'''# Findings
 
-{lead} This is a small regional pseudo-real-time backtest,
-not evidence of a causal effect or national generalization.
+Thirty counties: the ten most populous in each of Colorado, Massachusetts and Washington.
+"Stretched" means a renter household pays 30% or more of its income on rent and utilities.
+Dollar figures are adjusted for inflation to {g['base_year']} dollars. Ranges are 80% county
+bootstrap ranges unless they are called survey margins, which are Census 90% margins.
 
-| Model, all groups | MAE pp | RMSE pp | Gain over persistence pp | 80% interval coverage |
-|---|---:|---:|---:|---:|
-{table}
+## 1. Half of renters are stretched, and the share is where it was in 2011
 
-Coverage: {a.fips.nunique()} counties in three states; {len(a)} ACS county-years,
-2011–2024 except 2020. Final temporal tests: {len(final[final.model == 'persistence'])}
-county-targets in 2023–2024. Earlier development targets remain separately labelled.
+{p0['b']:.1f}% of renter households were stretched in 2011 and {p1['b']:.1f}% in 2024. The
+difference, {p1['b'] - p0['b']:+.1f} points, is inside the survey margin of ±{m01:.1f}. The
+share did move in between: it fell to {p9['b']:.1f}% in 2019 and rose after the pandemic.
 
-Commuting contribution (all minus employment-only MAE; negative favours commuting):
+In the median county, rent rose {md['rent_pct']:.1f}% and the median renter household's
+income rose {md['inc_pct']:.1f}%. Rent grew faster than renter income in
+{t['rent_outran_income']} of the 30 counties.
+
+## 2. Where the share changed by more than the survey can miss
+
+The share rose by more than its survey margin in {len(up)} counties ({', '.join(up)}) and fell
+by more than its margin in {len(dn)} ({', '.join(dn)}). In the other {nz['within']} counties the
+2011–2024 change is within the margin, so it could be sampling error.
+
+| County | 2011 | 2024 | Change, points ± margin | Rent | Renter income | Jobs, 2011–{t['j1']} |
+|---|---:|---:|---:|---:|---:|---:|
+{county}
+
+Where the share rose, rent outgrew renter income by {min(gu):.0f} to {max(gu):.0f} log points.
+Where it fell, renter income outgrew rent.
+
+## 3. The share follows rent relative to income
+
+Each 10 points by which rent outgrew renter income came with a
+{sl[('gap', 'db')]['per10']:.1f}-point rise in the share stretched (range
+{rng(sl[('gap', 'db')])}; correlation {sl[('gap', 'db')]['r']:.2f}). That is close to
+arithmetic, since the share is set by rent against income. What it adds is which side moved:
+the counties that improved are the ones where renter incomes outran rent. Real rent rose in
+{sum(c['rent_pct'] > 0 for c in rows)} of the 30 counties.
+
+Median renter income measures whoever rents in a given year. It rose faster than average pay
+at the county's workplaces ({md['pay_pct']:.1f}% in the median county, 2011–{t['j1']}),
+which suggests the mix of renters shifted toward higher earners. This study cannot separate
+raises from a change in who rents.
+
+## 4. Job growth raised rent about twice as fast as renter income
+
+| Per 10% more jobs | 2011–2024 | 2011–2019 |
+|---|---:|---:|
+{jobs}
+
+Jobs are counted at workplaces, through {t['j1']} and {e['j1']}. Before the pandemic, counties
+that added jobs faster saw the share stretched rise: {se[('jobs_pct', 'db')]['per10']:+.1f}
+points per 10% more jobs. Over the full period the estimate is
+{sl[('jobs_pct', 'db')]['per10']:+.1f} and its range includes zero, so it does not resolve.
+These are associations across 30 counties, not causes: jobs, rent and income all move with
+things this study does not measure, such as who moves in.
+
+## 5. Next year's share cannot be forecast, because the survey is too noisy
+
+The share comes from a sample survey. Across {o['n']} one-year changes, a county's share moved
+by {o['rms_change']:.1f} points in a typical year (root mean square). Sampling error alone
+would move it by {o['rms_noise']:.1f}. Year-to-year movement in one county is no larger than
+survey noise, so no forecast can follow it. Over 13 years the picture is better: about
+{100 * nz['real_share']:.0f}% of the spread in counties' 2011–2024 changes is real.
+
+The original study forecast each county's share one year ahead, using only figures that had
+been published at the time, and kept 2023–2024 aside as the final test (60 county-years).
+Error is the average miss in percentage points; smaller is better.
+
+| Forecast | Final test 2023–2024 | Large misses (RMSE) | Earlier years 2017–2022 |
+|---|---:|---:|---:|
+{board}
+
+Carrying the last value forward missed by {base:.2f} points and neither fitted model beat it.
+Two forecasts that average out survey noise were added after the final test had been scored,
+so they are labelled as added later and kept apart from the original results. In 2017–2022
+the three-year average beat carrying forward by {-m3d['delta_mae']:.2f} points (range
+{-m3d['hi']:.2f} to {-m3d['lo']:.2f}). In the final test neither did: the three-year average
+differs by {m3f['delta_mae']:+.2f} (range {m3f['lo']:+.2f} to {m3f['hi']:+.2f}) and partial
+pooling by {pof['delta_mae']:+.2f} ({pof['lo']:+.2f} to {pof['hi']:+.2f}). The pooling
+model put no weight on any county's latest deviation from its usual level: it judged all of
+it to be survey noise.
+
+### Did commuting data help?
+
+Commuting adds where workers live and work. Below, the error with commuting minus the error
+without it; a negative number means commuting helped.
 
 {temporal}
 
-## Feature-group comparisons
+When one state was left out of fitting and forecast from the other two, commuting raised the
+average miss in {worse} of {len(transfer)} cases; in {sure} the whole 80% range is above zero.
 
-| Experiment | Model | Final temporal MAE pp |
-|---|---|---:|
-{groups}
-
-Housing/history regression has MAE {lin['housing']:.3f} pp; adding employment {more} it to
-{lin['employment']:.3f} pp. Removing employment from the full regression {less} error to
-{lin['no_employment']:.3f} pp.
-
-## Does the commuting gain transfer?
-
-| Held-out state | Model | All minus employment-only MAE pp | 80% interval |
+| State left out | Forecast | With minus without commuting | Range |
 |---|---|---:|---|
 {holdouts}
 
-Intervals preserve within-county years but not common state shocks. Three independent
-geographic groups are few; even a positive ablation needs independent states and future years.
+### Which inputs helped the regression?
 
-## Evidence log
+| Inputs | Forecast | Final-test error |
+|---|---|---:|
+{groups}
 
-- **Timing leakage:** contradicted by source/label eligibility certificates; archived vintage
-  availability remains unverified. The conservative lags are assumptions.
-- **Simple models suffice:** {simple}.
-  The housing-only linear experiment has {housing} error ({lin['housing']:.3f} pp)
-  than persistence ({base:.3f} pp).
-- **Commuting adds information:** in temporal evaluation, commuting {signs}.
-  {positive} of {len(transfer)} state transfers have a positive (unfavourable) point difference.
-- **Income/composition explains growth:** ablations test predictive substitution; population
-  alone cannot remove demographic composition confounding. Causal explanation inconclusive.
-- **Pandemic dependence, inconclusive:** development and geographic filters expose sensitivity;
-  final two-year block cannot establish stability across regimes.
-- **Measurement uncertainty:** published category margins are retained. Derived sampling margins
-  ignore covariance; small gains should not be interpreted as precise changes in latent burden.
+Rent, income and housing alone gave the regression an error of {lin['housing']:.2f}, against
+{base:.2f} for carrying forward. Adding jobs raised it to {lin['employment']:.2f}.
 
-What would change the conclusion: a larger preregistered national sample, archived release
-vintages, reliable cross-state destination rankings, and repeated gains in future target years.
-Full definitions and exclusions are in METHODS.md and COVERAGE.md.
+## Every county, 2011–2024
+
+Rent and income are medians; the gap is rent growth minus income growth in log points.
+Jobs and pay are counted at workplaces, 2011–{t['j1']}.
+
+| County | 2011 | 2024 | Change ± margin | Verdict | Rent | Renter income | Gap | Jobs | Pay |
+|---|---:|---:|---:|---|---:|---:|---:|---:|---:|
+{every}
+
+## What this does not show
+
+- It covers 30 large counties in three states, chosen by 2011 population before any results
+  were seen. It says nothing about the United States as a whole.
+- It describes associations, not causes. It does not show that job growth raises rent.
+- Publication delays are assumed (survey one year, workplace jobs two, commuting four), and
+  today's revised files stand in for what forecasters saw at the time.
+- Only two final-test years and three states exist, so the ranges above are wide, and the
+  county ranges do not capture shocks shared by a whole state.
+- The survey has no 2020 one-year estimates; that year is left out, never filled in.
+- The derived margins ignore correlations between survey categories that the Census does
+  not publish.
+
+More states, archived releases and later years could change these conclusions. Definitions
+are in METHODS.md, exclusions in COVERAGE.md, checks in VALIDATION.md.
 '''
 
 
@@ -214,24 +324,33 @@ def run():
     fields = ['fips', 'year', 'burden', 'burden_moe', 'population', 'housing',
               'real_rent', 'real_income', 'jobs', 'real_pay', 'renters']
 
-    manifest = source_manifest()
-    scenarios = json.loads((ROOT / 'artifacts/scenarios.json').read_text())
-    y = C['evaluation_years'][-1]
-    scenarios['support'] = support(scenarios['linear']['features'],
-                                   panel[panel.label_available <= y - 1])
-    data = {'config': C, 'sample': clean(sample), 'paths': clean(paths[fields]),
-            'predictions': clean(p), 'lodes': lodes, 'metrics': metric_rows,
-            'paired': paired_rows, 'scenarios': scenarios,
+    manifest = load('manifest.json')
+    g = load('gap.json')
+    b = pd.read_csv(OUT / 'baselines.csv', dtype={'fips': str, 'state': str})
+    forecasts = pd.concat([p[p.experiment == 'all'][KEEP],
+                           b[b.model != 'persistence'].reindex(columns=KEEP)])
+    flows = [{k: r[k] for k in ['fips', 'year', 'inbound', 'outbound', 'retention',
+                                'work_jobs', 'resident_jobs']} for r in lodes]
+    data = {'config': {k: C[k] for k in ['states', 'base_year', 'final_test_years',
+                                         'evaluation_years']},
+            'labels': LABEL, 'inputs': INPUTS, 'sample': clean(sample),
+            'paths': clean(paths[fields]), 'gap': g, 'forecasts': clean(forecasts),
+            'flows': flows, 'metrics': metric_rows, 'paired': paired_rows,
+            'comparison': load('comparison.json')['comparisons'],
             'geometry': load('counties.geojson'),
             'sources': [{k: r[k] for k in ['url', 'retrieved', 'sha256', 'bytes']}
                         for r in manifest]}
     write(SITE / 'data.json', json.dumps(data, separators=(',', ':'), allow_nan=False))
-    write(SITE / 'vendor/plotly-4.1.1.min.js', get_plotlyjs())
+    js = get_plotlyjs()
+    if 'plotly.js v4.1.1' in js[:200]:
+        write(SITE / 'vendor/plotly-4.1.1.min.js', js)
+    else:
+        print('Installed plotly does not bundle plotly.js 4.1.1; vendored copy left unchanged.')
     write(SITE / 'vendor/README.md',
           'Plotly.js 4.1.1, MIT license, bundled from plotly.py 7.1.0. Header carries license.\n')
 
     final = p[(p.regime == 'temporal') & (p.experiment == 'all') & (p.block == 'final test')]
-    write(ROOT / 'docs/FINDINGS.md', findings(final, metric_rows, paired_rows, a))
+    write(ROOT / 'docs/FINDINGS.md', findings(final, metric_rows, paired_rows, g))
     write(ROOT / 'docs/COVERAGE.md', coverage(a, q, pd.DataFrame(lodes), sample, panel, final,
                                               manifest))
     for f in DOWNLOADS:
@@ -242,7 +361,8 @@ def run():
     sources = sorted([*ROOT.glob('analysis/*.py'), *SITE.glob('*.js'), SITE / 'index.html',
                       SITE / 'style.css', ROOT / 'config.json', ROOT / 'requirements.txt'])
     results = [OUT / f for f in ['panel.csv', 'predictions.csv', 'calibration.csv',
-                                 'metrics.json', 'paired.json', 'manifest.json']]
+                                 'metrics.json', 'paired.json', 'manifest.json', 'gap.json',
+                                 'baselines.csv']]
     build = {'source_revision': 'v0.1.0', 'built_utc': datetime.now(UTC).isoformat(),
              'seed': C['seed'], 'python': platform.python_version(),
              'dependencies': {n: importlib.metadata.version(n) for n in

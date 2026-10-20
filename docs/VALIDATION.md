@@ -63,3 +63,41 @@ preserve common state shocks, and geographic transfer has only three independent
 
 Reproduce the gate and browser QA with the commands in README.md. Raw-source tests require
 the ignored cache; on a fresh clone the raw-source test is skipped until data are fetched.
+
+## Reframe, 2026-10-20
+
+Measured on Windows, system Python 3.14 with numpy 2.4.4, scipy 1.17.1, pandas 3.0.3,
+scikit-learn 1.8.0 and plotly 6.7.0. These are older than the versions pinned in
+`requirements.txt`; CI installs the pinned versions.
+
+- Survey margin: the old ratio-formula margins were first reproduced exactly from the
+  committed `acs.csv` columns (maximum difference 0.0). After switching to the proportion
+  formula only `burden_moe` changed; median 5.78 pp became 4.25 pp, and no county-year needed
+  the ratio fallback.
+- Offline refit (`analysis.models`): `metrics.json`, `paired.json`, `calibration.csv`,
+  `exclusions.json` and `artifacts/fits.json` are byte-identical to the previous release; in
+  `panel.csv` and `predictions.csv` only `target_moe` changed. The exported final regression
+  and tree models are identical to the former `scenarios.json` entries.
+- The full offline pipeline (models, comparison, gap, build_site) was run twice; every
+  processed file, artifact and generated report had identical SHA-256 both times.
+- `analysis.gap`: carry-forward scores reproduce the registered final MAE (2.854647) and
+  development MAE (3.598178) exactly; added-later forecasts use the same 60 + 150
+  county-years, and their inputs come only from ACS years published by each forecast date.
+- `python -m pytest -q`: 17 passed, 1 skipped (the raw-cache source check; `data/raw/` is not
+  present on this machine). `python -m ruff check .`: all checks passed. `python -m pip check`:
+  no broken requirements.
+- Browser QA (`python qa/browser.py`, installed Microsoft Edge, served under `/site/`): headline
+  numbers match `gap.json`; map click, county list and URL restore; period and scoring
+  controls redraw; 30-row county table and 4-row holdout table; every download returns
+  nonempty HTTP 200; no horizontal overflow at 390 px; no console errors or failed requests in
+  light or dark colour scheme. Desktop screenshots in both schemes and a mobile screenshot were
+  inspected.
+
+Two build defects were found and fixed. `build_site` read the source manifest from the raw
+cache, so without the cache it wrote "Raw cached bytes: 0" into COVERAGE.md and an empty source
+list into the site; it now reads `data/processed/manifest.json`. It also overwrote the vendored
+Plotly with whatever plotly.py bundled (here plotly.js 3.5.0 under the 4.1.1 file name); it now
+leaves the vendored file alone unless the bundled version is 4.1.1.
+
+Not measured in this pass: a rebuild from a fresh raw download, the pinned dependency versions
+locally, Safari or Firefox, a screen reader, and the deployed GitHub Pages site before push.

@@ -2,7 +2,6 @@
 import csv
 import gzip
 import json
-import subprocess
 
 import numpy as np
 import pandas as pd
@@ -122,14 +121,8 @@ def test_lodes_totals_and_cross_state_accounting():
         assert r['main_total'] <= r['wac_total'] + 1
 
 
-def test_browser_predictor_matches_python():
-    run = subprocess.run(['node', 'qa/scenario.cjs'], cwd=ROOT, capture_output=True,
-                         text=True, check=False)
-    assert run.returncode == 0, run.stdout + run.stderr
-
-
 def test_penalized_least_squares_stationarity():
-    s = json.loads((ROOT / 'artifacts/scenarios.json').read_text())['linear']
+    s = json.loads((ROOT / 'artifacts/final_model.json').read_text())['linear']
     fits = json.loads((ROOT / 'artifacts/fits.json').read_text())
     fit = next(r for r in fits if r['regime'] == 'temporal' and r['model'] == 'linear'
                and r['experiment'] == 'all' and r['target_year'] == 2024)

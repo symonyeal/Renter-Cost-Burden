@@ -1,5 +1,5 @@
 {
-  "predictions_sha256": "344e16180a58410a8a1b4c18496f5bcca2f9115f4b734480f5464c886700bf36",
+  "predictions_sha256": "3287a03662cff48ca492aedf4dc70f4cfb73ca7ae8c7ef07c6a661c539c4a067",
   "seed": 271828,
   "resamples": 2000,
   "interval_coverage": 0.8,
