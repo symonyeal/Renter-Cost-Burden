@@ -45,6 +45,14 @@ float digit; they are now parsed round-trip). Integrity suite: 9 passed. JS/Pyth
 
 ## Not measured / material limits
 
+Supplementary comparison, 20 October 2026: `python -m analysis.comparison` reconstructed
+16 paired model-versus-persistence comparisons from the frozen predictions, with
+county-cluster intervals and year/state omission diagnostics. The full suite returned
+11 passed and one skipped raw-cache check; Ruff and dependency checks passed. The
+final-test split, source years and forecasts were unchanged. See
+[the supplementary results](TEMPORAL_VALIDATION.md). This adds no archived vintages
+or independent later holdout outcomes.
+
 No archived-vintage reconstruction, national generalization, causal identification, future-year
 prospective trial, screen-reader session, automated WCAG conformance audit, Safari/Firefox run,
 physical mobile-device test, or actual GitHub Pages deployment. Small county-boundary adjustments
