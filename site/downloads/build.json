@@ -1,6 +1,6 @@
 {
   "source_revision": "v0.1.0",
-  "built_utc": "2026-10-20T22:34:26.806750+00:00",
+  "built_utc": "2026-10-20T22:45:41.297374+00:00",
   "seed": 271828,
   "python": "3.14.3",
   "dependencies": {
@@ -21,7 +21,7 @@
     "config.json": "975ab4b1b29b7e1b918360badfa4abd2187f755eaf13d7ed69abe35e207e7630",
     "requirements.txt": "f75f6a70f44e60462a620d6bf18a0bae2e5771736be26d90f91b85c4d0bb3cb8",
     "site/app.js": "11b47e97db50a951547d8d7f78804be68215ef777c848cca22e104adec5400da",
-    "site/index.html": "6ee2fcce7f0d433dfc3aff84e6b5e4c64dc9f0843ada08d34f306f19a7733c8b",
+    "site/index.html": "257bac9f015077e5fadcc51d716adc47f434edb74d4c08d8901279364912b8d4",
     "site/style.css": "671b7fc192a995bd6a2faa9484d666d0fb99bd5483e95b68fa3b715ff5790daf",
     "data/processed/panel.csv": "9dd18212b2dc4a94905750198e3e14da47020973773c59e2e1a20ed2566d1696",
     "data/processed/predictions.csv": "3287a03662cff48ca492aedf4dc70f4cfb73ca7ae8c7ef07c6a661c539c4a067",

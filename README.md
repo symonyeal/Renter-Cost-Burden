@@ -1,9 +1,9 @@
-# The Prosperity Gap
+# Renter Cost Burden
 
 Did renter incomes keep up with rent in the 30 largest counties of Colorado, Massachusetts and
 Washington between 2011 and 2024? And did job growth make renters worse off?
 
-**Site: https://symonyeal.github.io/The-Prosperity-Gap/**
+**Site: https://symonyeal.github.io/Renter-Cost-Burden/**
 
 ## What the data shows
 
