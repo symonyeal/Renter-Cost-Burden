@@ -79,6 +79,12 @@ requirements-qa.txt`, then `python qa/browser.py`) drives installed Microsoft Ed
 
 ## Limits
 
+[Supplementary temporal validation](docs/TEMPORAL_VALIDATION.md) compares the frozen
+forecasts with persistence, reports county-cluster uncertainty and checks sensitivity
+to dropping a state or target year. Reproduce it with `python -m analysis.comparison`.
+Development years remain separate from the original final test; no new source vintages
+or later outcomes are implied.
+
 Release dates are conservative assumed lags, not archived vintages: this is a pseudo-real-time
 backtest. The final test covers two years and geographic transfer three states. The study
 supports predictive comparisons, not causal conclusions or household advice.
