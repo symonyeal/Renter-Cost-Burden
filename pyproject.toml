@@ -1,5 +1,5 @@
 [project]
-name = "prosperity-gap"
+name = "renter-cost-burden"
 version = "0.1.0"
 description = "Rent, renter income and jobs in 30 counties of CO, MA and WA, 2011-2024, with survey-error checks and release-aware forecasts."
 requires-python = ">=3.14"
