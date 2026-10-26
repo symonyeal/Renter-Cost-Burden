@@ -3,6 +3,7 @@
 //! numerator; z eligible denominator; p proportion; mn/md numerator/denominator
 //! margins; b burden percent; m 90% margin; r rent; i income; x CPI multiplier;
 //! h CSV headers; k field name; q pooled annual counts; e error.
+//! s0/s1 sampling standard errors at the first and last year.
 use crate::{E, read};
 use serde_json::{Value, json};
 use std::{
@@ -39,6 +40,12 @@ fn num(a: &Row, k: &str) -> Result<f64, E> {
 
 fn sq(x: f64) -> f64 {
     x * x
+}
+
+fn change_margin(s0: f64, s1: f64) -> f64 {
+    // METHODS.md's literal formula avoids platform-specific libm hypot rounding.
+    // ACS sampling errors are small; their squares cannot overflow in this scope.
+    1.645 * (sq(s0) + sq(s1)).sqrt()
 }
 
 fn burden(n: f64, z: f64, mn: f64, md: f64) -> Result<(f64, f64), E> {
@@ -177,7 +184,7 @@ pub fn run(r: &Path, c: &Value) -> Result<Value, E> {
             let db = b["value"].as_f64().unwrap() - a["value"].as_f64().unwrap();
             let m0 = a["margin"].as_f64().unwrap();
             let m1 = b["margin"].as_f64().unwrap();
-            let m = 1.645 * (m0 / 1.645).hypot(m1 / 1.645);
+            let m = change_margin(m0 / 1.645, m1 / 1.645);
             changes.push(json!({"geo_id":f,"geo":aa["geo"],"y0":y0,"y1":y1,
                 "burden_change":db,"margin":m,"rent_growth":g("rent"),"income_growth":g("income"),
                 "verdict":if db>m {"up"} else if db < -m {"down"} else {"within noise"}}));
@@ -258,5 +265,13 @@ mod tests {
     fn exact_comparator_detects_last_bit() {
         assert!(exact(0.5, 0.5));
         assert!(!exact(0.5, f64::from_bits(0.5_f64.to_bits() + 1)));
+    }
+    #[test]
+    fn change_margin_replays_cross_platform_regression() {
+        // Barnstable County's production inputs exposed the Linux libm difference.
+        assert_eq!(
+            change_margin(3.443_476_947_849_527_7, 5.628_661_244_731_061).to_bits(),
+            10.854_427_625_390_723_f64.to_bits()
+        );
     }
 }

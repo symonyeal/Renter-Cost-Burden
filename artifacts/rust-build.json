@@ -20,6 +20,6 @@
     "src/history.rs": "8a69e2146f7d8d431b800382c86c12c1e0d96e2fdfab40e35837ff9243aa7be3",
     "src/kernel.rs": "579164a0758aa852ea4c14c2cfaa0a37c32837efb37b7bf13e41330e33422930",
     "src/main.rs": "a07c5de35511b6256b875f24de9454f24eb717b4370e3f1db521dee342e7ea3c",
-    "src/us.rs": "40789e77edfc26ac2c75c2a1a61f16f050173dfe670942fa7e8c3177bfb77fcd"
+    "src/us.rs": "f5d79a7f2fba9e14e6ef047ae85b51df40763a01ca2921297d502cd37234b351"
   }
 }
