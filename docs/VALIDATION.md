@@ -2,6 +2,14 @@
 
 ## Additional years and release checks, 2026-10-26
 
+The first Ubuntu release run exposed a one-bit difference in native `hypot` for a change
+margin. Rust now evaluates the documented expression `1.645 * sqrt(s0*s0 + s1*s1)` directly,
+with the same operation order as the saved US results. A regression test retains the failing
+Barnstable input pair. The exact full-output comparison is unchanged; no tolerance or rounding
+was added. The first CI result is retained as a failed run rather than called a pass.
+The corrected local gate reports 8 Rust tests and 44 Python tests passed, with the same one
+US raw-cache skip; fmt, clippy and Ruff pass. The rebuilt site data remain byte-identical.
+
 The official 2016–2021 Census comparison adds 110 renter-burden observations across 55
 geographies on common 2021 boundaries. They are a separate measure from the detailed 2021
 count reconstruction. The Canadian export now contains 4,447 observations from six sources.
