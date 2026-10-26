@@ -5,7 +5,8 @@ const $ = id => document.getElementById(id);
 let b, s = {
         country: 'ca',
         measure: '',
-        place: ''
+        place: '',
+        year: null
     },
     rows = [];
 const names = {
@@ -31,6 +32,7 @@ function writeUrl() {
     u.searchParams.set('country', s.country);
     u.searchParams.set('measure', s.measure);
     u.searchParams.set('place', s.place);
+    u.searchParams.set('year', s.year);
     history.pushState(null, '', u);
 }
 
@@ -39,7 +41,8 @@ function readUrl() {
     s = {
         country: q.get('country') === 'us' ? 'us' : 'ca',
         measure: q.get('measure') || '',
-        place: q.get('place') || ''
+        place: q.get('place') || '',
+        year: Number(q.get('year')) || null
     };
 }
 
@@ -64,15 +67,19 @@ function render() {
         m = c.measures.find(m => m.id === s.measure);
     rows = c.observations.filter(r => r.measure === s.measure && String(r.geo_id) === s.place).sort((a, z) => a.year - z.year);
     const valid = rows.filter(r => num(r.value)),
-        latest = valid.at(-1),
         first = valid[0],
-        g = rows[0];
+        years = [...new Set(rows.map(r => r.year))].sort((a,z) => a-z);
+    if (!years.includes(s.year)) s.year = valid.at(-1)?.year ?? years.at(-1);
+    const selected = rows.find(r => r.year === s.year),
+        g = selected || rows[0];
+    $('year').innerHTML = years.map(y => `<option value="${y}">${y}</option>`).join('');
+    $('year').value = s.year;
     $('scope').textContent = s.country === 'ca' ? 'Canada · descriptive housing indicators' : 'United States · 30 counties in Colorado, Massachusetts & Washington';
     $('placeLabel').textContent = g.geo + ' · ' + g.level.replaceAll('_', ' ');
-    $('finding').textContent = latest ? `${m.title} in ${latest.year}` : 'No numeric estimate published';
-    $('definition').textContent = latest && valid.length > 1 ? `${valid.length} published observations, ${first.year}–${latest.year}.` : 'The selected source provides a single published period.';
-    $('value').textContent = latest ? fmt(latest.value) + (m.unit === 'percent' || m.unit === '%' ? '%' : '') : '—';
-    $('period').textContent = latest ? `${latest.year} · ${m.unit}` : m.unit;
+    $('finding').textContent = `${m.title} in ${s.year}`;
+    $('definition').textContent = valid.length > 1 ? `${valid.length} published observations, ${first.year}–${valid.at(-1).year}. Choose a year to compare places.` : 'The selected source provides a single published period.';
+    $('value').textContent = num(selected?.value) ? fmt(selected.value) + (m.unit === 'percent' || m.unit === '%' ? '%' : '') : 'Not published';
+    $('period').textContent = `${s.year} · ${m.unit}`;
     $('universe').textContent = 'Population: ' + m.universe;
     $('measureNotes').textContent = Array.isArray(m.notes) ? m.notes.join(' ') : m.notes || '';
     const quality = g.quality;
@@ -86,7 +93,7 @@ function render() {
         const src = source(r.source),
             lo = r.lower ?? r.lo,
             hi = r.upper ?? r.hi;
-        return `<tr data-year="${r.year}" data-value="${r.value??''}"><th scope="row">${r.year}</th><td>${fmt(r.value)}</td><td>${num(lo)&&num(hi)?fmt(lo)+'–'+fmt(hi):'Not supplied'}</td><td>${esc(r.status||'No flag supplied')}</td><td>${src?`<a href="${esc(src.url)}">${esc(src.title)}</a>`:esc(r.source)}</td></tr>`;
+        return `<tr class="${r.year === s.year ? 'is-selected' : ''}" data-year="${r.year}" data-value="${r.value??''}"><th scope="row">${r.year}</th><td>${fmt(r.value)}</td><td>${num(lo)&&num(hi)?fmt(lo)+'–'+fmt(hi):'Not supplied'}</td><td>${esc(r.status||'No flag supplied')}</td><td>${src?`<a href="${esc(src.url)}">${esc(src.title)}</a>`:esc(r.source)}</td></tr>`;
     }).join('');
     const cov = c.coverage || {},
         notes = [cov.summary, ...(Array.isArray(cov.notes) ? cov.notes : [cov.notes]), ...(cov.limits || [])].filter(Boolean);
@@ -95,7 +102,7 @@ function render() {
     const ids = new Set(rows.map(r => r.source));
     $('sources').innerHTML = c.sources.filter(r => ids.has(r.id)).map(r => `<li><a href="${esc(r.url)}">${esc(r.title)}</a>${r.retrieved?`<br>Retrieved ${esc(r.retrieved.slice(0,10))}`:''}</li>`).join('');
     draw(m, valid);
-    comparePlaces(c, m, g, latest);
+    comparePlaces(c, m, g, selected);
     window.RENDERED = true;
 }
 
@@ -156,7 +163,7 @@ function draw(m, valid) {
     const years = rows.map(r => +r.year),
         min = Math.min(...years),
         max = Math.max(...years),
-        fullScale = m.id === 'burden',
+        fullScale = m.id.startsWith('burden'),
         peak = Math.max(...valid.map(r => r.upper ?? r.hi ?? r.value), 0.01) * 1.08,
         base = 10 ** Math.floor(Math.log10(peak / 4)),
         step = [1, 2, 2.5, 5, 10].find(v => v * base >= peak / 4) * base,
@@ -240,11 +247,17 @@ document.querySelectorAll('[data-country]').forEach(el => el.onclick = () => {
 });
 $('measure').onchange = () => {
     s.measure = $('measure').value;
+    s.year = null;
     controls();
     writeUrl();
 };
 $('place').onchange = () => {
     s.place = $('place').value;
+    render();
+    writeUrl();
+};
+$('year').onchange = () => {
+    s.year = Number($('year').value);
     render();
     writeUrl();
 };

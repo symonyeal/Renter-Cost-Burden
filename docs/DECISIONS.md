@@ -2,6 +2,13 @@
 
 ## 2026-10-26: Rust pipeline and Canadian coverage
 
+The owner then requested other years and authorized pushing to main when finished. Added the
+official 2016–2021 Census renter-burden comparison and an explicit year control. Both years use
+one common-boundary publication; its values remain separate from the detailed 2021 counts.
+The 2011 voluntary NHS is not treated as an interchangeable Census wave. Historical source
+CSV decoding is verified as UTF-8 with BOM; system certificate roots support source downloads
+on networks with an installed inspection certificate, without disabling TLS verification.
+
 The owner approved equal Canadian and US prominence, most of the new pipeline in Rust,
 Canadian provincial/territorial and source-supported metro coverage, descriptive Canadian
 analysis and a rebuilt site. The registered US sample, folds and forecasts stay fixed.

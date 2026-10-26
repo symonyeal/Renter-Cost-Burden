@@ -402,7 +402,7 @@ fn validate(observations: &[Value]) -> Result<()> {
             }
         }
     }
-    for measure in ["burden", "core_need", "rent", "vacancy"] {
+    for measure in ["burden_history", "burden", "core_need", "rent", "vacancy"] {
         if !observations
             .iter()
             .any(|o| o["measure"] == measure && o["value"].is_number())
@@ -453,6 +453,9 @@ pub fn run(root: &Path, download: bool) -> Result<Value> {
         observations.extend(rows);
         sources.push(source);
     }
+    let (source, history) = crate::history::run(root)?;
+    sources.push(source);
+    observations.extend(history);
     observations.sort_by_key(|o| {
         format!(
             "{}|{}|{}|{}",
@@ -461,13 +464,14 @@ pub fn run(root: &Path, download: bool) -> Result<Value> {
     });
     validate(&observations)?;
     let measures = json!([
+        {"id":"burden_history","title":"Renter burden, 2016–2021 comparison","unit":"percent","universe":"Renter households in non-farm, off-reserve private dwellings with positive income; Census 2016 and 2021, common 2021 boundaries","notes":"Published percentages to one decimal, from the same comparison table in The Daily. Canada, all 13 provinces/territories and named metropolitan areas. Shelter costs are for the Census year; income is for the preceding year. This 2022 release can differ from later detailed-table revisions and count-based reconstruction; do not splice the two series. No annual interpolation or sampling intervals are supplied. Pandemic income support affects the 2020 income comparison."},
         {"id":"burden","title":"Renters spending 30% or more on shelter","unit":"percent","universe":"Renter households with positive income in off-reserve, non-farm private dwellings; 2021 Census 25% sample","notes":"2021 housing costs / 2020 before-tax household income. Denominator is published under-30% plus 30%-or-more renter counts; excludes not applicable. Published count bounds and quality flags retained; a ratio confidence interval is not available and is not synthesized. Census counts are rounded."},
         {"id":"core_need","title":"Renters in core housing need","unit":"percent","universe":"CHS renter households assessed for core housing need; provinces only","notes":"Not a burden rate. Assesses adequacy, suitability, affordability and cost of acceptable alternative local housing. Excludes nonpositive incomes and shelter-cost-to-income ratios >=100%; student household rules apply. Published 95% confidence intervals retained. 2021 Census geographic boundaries."},
         {"id":"rent","title":"Two-bedroom average monthly rent","unit":"CAD per month","universe":"CMHC privately initiated row and apartment structures with three or more units in surveyed areas of 10,000+ population","notes":"Nominal Canadian dollars, existing rental stock, not asking rent or renter household shelter costs. Changes can reflect dwelling composition. Geographic definitions change every five years; no constant-boundary growth estimate."},
         {"id":"vacancy","title":"Rental vacancy rate","unit":"percent","universe":"CMHC privately initiated row and apartment structures with three or more units; all bedroom sizes; surveyed CMAs and CAs of 50,000+","notes":"Vacancy uses all bedroom sizes and is context for two-bedroom rents; not an identical bedroom universe. Geographic definitions change every five years."}
     ]);
     let mut counts = BTreeMap::new();
-    for measure in ["burden", "core_need", "rent", "vacancy"] {
+    for measure in ["burden_history", "burden", "core_need", "rent", "vacancy"] {
         let rows: Vec<_> = observations
             .iter()
             .filter(|o| o["measure"] == measure)
@@ -512,7 +516,7 @@ mod tests {
     }
     #[test]
     fn rejects_duplicate_and_out_of_range_exports() {
-        let mut rows:Vec<_>=["burden","core_need","rent","vacancy"].iter().map(|m|json!({"source":"test fixture","geo":"fixture","year":2021,"measure":m,"value":0})).collect();
+        let mut rows:Vec<_>=["burden_history","burden","core_need","rent","vacancy"].iter().map(|m|json!({"source":"test fixture","geo":"fixture","year":2021,"measure":m,"value":0})).collect();
         assert!(validate(&rows).is_ok());
         rows.push(rows[0].clone());
         assert!(validate(&rows).is_err());

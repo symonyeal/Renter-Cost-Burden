@@ -65,3 +65,18 @@ def test_canadian_export_sources_and_flags():
     withheld = [r for r in a if r['value'] is None]
     assert withheld and all(r['status'] for r in withheld)
     assert any(r['value'] == 0 for r in a)
+
+
+def test_historical_burden_is_one_published_series():
+    d = json.loads((OUT / 'canada.json').read_text(encoding='utf-8'))
+    a = [r for r in d['observations'] if r['measure'] == 'burden_history']
+    assert len(a) > 0
+    keys = {(r['geo_id'], r['year']) for r in a}
+    geos = {r['geo_id'] for r in a}
+    assert keys == {(g, y) for g in geos for y in [2016, 2021]}
+    assert all(r['source'] == 'census-comparison-2016-2021' for r in a)
+    assert all(r['geography_vintage'] == 2021 for r in a)
+    assert all(r['lower'] is None and r['upper'] is None for r in a)
+    assert any(r['geo'].startswith('Montréal') for r in a)
+    canada = {r['year']: r['value'] for r in a if r['geo'] == 'Canada'}
+    assert canada == {2016: 40.0, 2021: 33.2}

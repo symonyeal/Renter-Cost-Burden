@@ -18,6 +18,22 @@ def run():
     a = {(r['source'], r['geo'], r['year'], r['measure']): r for r in d['observations']}
     n = {}
     for s in d['sources']:
+        if s.get('format', '').startswith('CSV'):
+            path = ROOT / 'data/raw/canada' / s['cache']
+            assert hashlib.sha256(path.read_bytes()).hexdigest() == s['sha256']
+            n[s['id']] = 0
+            rows = csv.reader(io.StringIO(path.read_bytes().decode('utf-8-sig')))
+            for r in rows:
+                if len(r) < 7:
+                    continue
+                for i, year in [(5, 2016), (6, 2021)]:
+                    k = (s['id'], r[0], year, 'burden_history')
+                    if k in a:
+                        assert a[k]['value'] == float(r[i]), k
+                        n[s['id']] += 1
+            expected_count = len([r for r in d['observations'] if r['source'] == s['id']])
+            assert n[s['id']] == expected_count > 0, (s['id'], n[s['id']], expected_count)
+            continue
         path = ROOT / 'data/raw/canada' / f'{s["id"]}-eng.zip'
         assert path.exists(), f'Fetch the optional official source cache first: {path}'
         with path.open('rb') as stream:

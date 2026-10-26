@@ -44,9 +44,18 @@ def run():
             page.goto(u)
             page.wait_for_function("window.RENDERED === true")
             assert page.locator("#status").inner_text() == ""
+            assert page.locator("#measure").input_value() == "burden_history"
+            assert page.locator("#year option").all_text_contents() == ["2016", "2021"]
+            page.select_option("#year", "2016")
+            assert page.locator("#value").inner_text() == "40.0%"
+            assert "2016" in page.locator("#compareHeading").inner_text()
+            page.reload()
+            page.wait_for_function("window.RENDERED === true")
+            assert page.locator("#year").input_value() == "2016"
+            page.select_option("#year", "2021")
+            assert page.locator("#value").inner_text() == "33.2%"
+            checks.append("Historical burden and year control restore 2016/2021 source values")
             assert page.locator("#comparison tbody tr").count() == 13
-            assert page.locator("#geographyQuality").inner_text().startswith(
-                "Census geography quality code:")
             page.locator("#comparison [data-place]").first.click()
             assert page.locator("#place").input_value() == page.locator(
                 "#comparison [data-place]").first.get_attribute("data-place")

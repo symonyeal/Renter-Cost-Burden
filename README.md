@@ -8,6 +8,7 @@ The US section covers a fixed regional sample; it is not a national US estimate.
 
 | Measure | Published periods | Geography |
 | --- | --- | --- |
+| Renter burden, historical comparison | 2016 and 2021 Censuses, common 2021 boundaries | Canada, all 13 provinces/territories and 41 metropolitan areas |
 | Renters spending at least 30% of income on shelter | 2021 Census | Canada, all 13 provinces/territories and 152 metropolitan/agglomeration areas |
 | Renters in core housing need | 2018, 2021, 2022, 2024 Canadian Housing Survey | Provinces-only national estimate, provinces and selected metros |
 | Two-bedroom average monthly rent | 2011–2025 CMHC Rental Market Survey | Source-supported rental markets; nominal CAD |
@@ -16,6 +17,11 @@ The US section covers a fixed regional sample; it is not a national US estimate.
 Burden and core housing need are different measures. Rent describes the surveyed rental stock,
 not asking rent or household burden. Missing observations remain missing. Canadian and US
 currencies, years and survey populations are not pooled. See [Canadian definitions](docs/CANADA.md).
+The year control changes the displayed estimate and place comparison; the chart and observation
+table retain all available years. The historical burden series uses the same published comparison
+for both years. Detailed 2021 counts remain a separate measure because revisions and rounding
+can differ. Earlier 2011 housing estimates come from the voluntary National Household Survey;
+they are not joined to this Census comparison. There are no estimates interpolated between years.
 
 ## Rust pipeline
 
