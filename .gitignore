@@ -4,3 +4,5 @@ __pycache__/
 data/raw/
 qa/*.png
 qa/browser.json
+target/
+*.pending

@@ -27,7 +27,8 @@ def test_published_categories():
                        a.B25070_001)
 
 
-@pytest.mark.skipif(not RAW.exists(), reason='Official raw cache is outside version control')
+@pytest.mark.skipif(not any(RAW.glob('*.json')),
+                    reason='Original US raw cache is outside version control')
 def test_official_source_spot_checks():
     a = pd.read_csv(OUT / 'acs.csv', dtype={'fips': str})
     manifests = [json.loads(p.read_text()) for p in RAW.glob('*.json')]

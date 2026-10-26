@@ -1,5 +1,10 @@
 # Methods
 
+The following methods define the registered US study. The rebuilt atlas uses the same US
+burden and money definitions, calculated in Rust from the committed source columns. Canadian
+methods and coverage are specified separately in [CANADA.md](CANADA.md). Country estimates
+are not pooled; core housing need is not substituted for shelter-cost burden.
+
 This page defines every number in [FINDINGS.md](FINDINGS.md): what is measured, where it
 comes from, how changes are judged against survey error, and how the forecasts were tested.
 

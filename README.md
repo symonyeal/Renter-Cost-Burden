@@ -1,5 +1,64 @@
 # Renter Cost Burden
 
+Explore renter shelter costs in Canada and the United States. The site gives both countries
+equal prominence, with each measure's population, period, quality flags and downloadable data.
+The US section covers a fixed regional sample; it is not a national US estimate.
+
+## Canadian coverage
+
+| Measure | Published periods | Geography |
+| --- | --- | --- |
+| Renters spending at least 30% of income on shelter | 2021 Census | Canada, all 13 provinces/territories and 152 metropolitan/agglomeration areas |
+| Renters in core housing need | 2018, 2021, 2022, 2024 Canadian Housing Survey | Provinces-only national estimate, provinces and selected metros |
+| Two-bedroom average monthly rent | 2011–2025 CMHC Rental Market Survey | Source-supported rental markets; nominal CAD |
+| Rental vacancy rate, all bedroom sizes | 2011–2025 CMHC Rental Market Survey | Source-supported metros and agglomerations |
+
+Burden and core housing need are different measures. Rent describes the surveyed rental stock,
+not asking rent or household burden. Missing observations remain missing. Canadian and US
+currencies, years and survey populations are not pooled. See [Canadian definitions](docs/CANADA.md).
+
+## Rust pipeline
+
+Rust handles Canadian downloads and parsing, source validation, both countries' descriptive
+exports and the combined site bundle. The US scikit-learn fitting and registered diagnostics
+remain in Python as the reference implementation. The original bulk US source adapters also
+remain in Python; the raw US cache is not needed for the default offline build.
+
+Install the stable Rust toolchain, then run:
+
+```text
+cargo run --release --locked -- build       # offline analysis and combined site bundle
+cargo run --release --locked -- verify-us   # exact US burden reconstruction
+cargo run --release --locked -- fetch-ca    # explicitly fetch/reuse Canadian source ZIPs
+cargo run --release --locked -- refit-us    # Python US study, then Rust site export
+cargo test --locked
+cargo clippy --locked --all-targets -- -D warnings
+```
+
+The optional US bootstrap backend can be selected with `RCB_BACKEND=rust` after building the
+release executable. Python remains the default for that small kernel; startup and JSON transfer
+must be included in any performance comparison. NumPy supplies identical random draws and
+computes quantiles in both paths. No speedup is claimed for the rewrite as a whole.
+
+The Rust build reads committed processed inputs and needs no network or Python installation.
+Canadian source ZIPs and retrieval records are cached under `data/raw/canada/`; processed
+exports retain source hashes, dates, disclosure symbols and Census geographic quality codes.
+`artifacts/rust-build.json` records build input and output hashes.
+The annual collection floor is `canada.first_year` in `config.json`, default 2011. A changed
+window requires `fetch-ca` to regenerate the export; the offline build rejects a stale window.
+With the optional source cache present, `python qa/canada_sources.py` checks source cells and ZIP
+hashes independently of the Rust parser.
+
+Serve `site/` with `python -m http.server 8765 --directory site`. The rebuilt atlas opens at
+http://localhost:8765/; the preserved US study is at http://localhost:8765/us/.
+Run `python qa/browser.py` for installed-Edge checks at desktop, tablet and mobile widths.
+
+The related [Canada Regional Profiles](https://github.com/symonyeal/Canada-Regional-Profiles)
+project informed geography and missing-data handling. This project uses versioned processed
+observations for reproducible analysis; its related dashboard queries live APIs.
+
+## Registered US study
+
 Did renter incomes keep up with rent in the 30 largest counties of Colorado, Massachusetts and
 Washington between 2011 and 2024? And did job growth make renters worse off?
 
@@ -49,7 +108,7 @@ year, so part of its rise may be higher earners moving into renting rather than 
 Definitions and formulas: [Methods](docs/METHODS.md). Exclusions: [Coverage](docs/COVERAGE.md).
 Checks run: [Validation](docs/VALIDATION.md). Dated decisions: [Decisions](docs/DECISIONS.md).
 
-## Reproduce
+## Reproduce the US study
 
 System Python 3.14; no virtual environment.
 

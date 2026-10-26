@@ -1,0 +1,19 @@
+[package]
+name = "renter-cost-burden"
+version = "0.2.0"
+edition = "2024"
+description = "Reproducible Canadian and US renter cost burden analysis"
+publish = false
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["float_roundtrip"] }
+csv = "1"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
+zip = { version = "2", default-features = false, features = ["deflate"] }
+sha2 = "0.10"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+
+[profile.release]
+codegen-units = 1
+lto = "thin"

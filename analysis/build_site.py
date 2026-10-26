@@ -13,7 +13,7 @@ from plotly.offline import get_plotlyjs
 from analysis.data import OUT, ROOT, C, write
 from analysis.models import metrics
 
-SITE = ROOT / C['paths']['site']
+SITE = ROOT / C['paths']['site'] / 'us'
 DOWNLOADS = ['acs.csv', 'panel.csv', 'predictions.csv', 'metrics.json', 'paired.json',
              'gap.json', 'baselines.csv', 'comparison.json',
              'manifest.json', 'sample.csv', 'lodes.json', 'qcew.csv', 'exclusions.json',

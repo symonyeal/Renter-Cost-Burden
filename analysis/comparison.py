@@ -4,6 +4,7 @@ import hashlib
 import numpy as np
 import pandas as pd
 
+from analysis.backend import bootstrap
 from analysis.data import OUT, ROOT, C, write
 
 
@@ -28,7 +29,7 @@ def compare(d, samples=2000, seed=None):
                 raise ValueError('paired forecasts have different targets')
             z['delta'] = abs(z.pred - z.y) - abs(z.pred_base - z.y)
             g = z.groupby('fips', sort=True).delta.mean().to_numpy()
-            boot = rng.choice(g, size=(samples, len(g))).mean(axis=1)
+            boot = bootstrap(g, rng, samples)
             delta = lambda x: float(x.groupby('fips').delta.mean().mean())
             years = sorted(int(y) for y in z.target_year.unique())
             rows.append({

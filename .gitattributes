@@ -1,4 +1,9 @@
 * text=auto eol=lf
-site/vendor/** linguist-vendored
+site/vendor/** linguist-vendored -whitespace
+site/us/vendor/** linguist-vendored -whitespace
 site/data.json linguist-generated
+site/bundle.json linguist-generated
 site/downloads/** linguist-generated
+site/us/data.json linguist-generated
+site/us/downloads/** linguist-generated
+data/processed/*.json linguist-generated
