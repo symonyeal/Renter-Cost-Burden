@@ -1,5 +1,28 @@
 # Decisions
 
+## 2026-10-26: Rust pipeline and Canadian coverage
+
+The owner approved equal Canadian and US prominence, most of the new pipeline in Rust,
+Canadian provincial/territorial and source-supported metro coverage, descriptive Canadian
+analysis and a rebuilt site. The registered US sample, folds and forecasts stay fixed.
+
+Rust owns Canadian ingestion, validation, US descriptive reconstruction and combined site
+export. Python retains the registered scikit-learn models, original bulk US adapters and
+reference diagnostics. NumPy remains the default for the small bootstrap: its measured
+end-to-end call is faster than launching a Rust process and transferring the draws as JSON.
+The optional Rust backend preserves the same random draws, pairwise reductions and quantiles.
+
+The 2021 Census supplies Canadian renter burden. CHS 46-10-0085 supplies core housing need
+as a separate measure; inspected tables 46-10-0084 and 46-10-0067 could not supply renter
+burden with the required tenure dimension. No annual burden series or Canadian forecast is
+manufactured. CMHC rent is two-bedroom, while vacancy covers all bedroom sizes in matching
+structure universes. Those differences stay visible in the site.
+
+The first Canadian annual source year is `canada.first_year` in `config.json`, default 2011.
+Changing it requires explicitly regenerating the Canadian export. The default build is offline.
+The original site remains at `site/us/`; the atlas is at `site/`. Publication requires separate
+authorization.
+
 2026-10-17. Use the approved implementation brief without another design gate.
 Reduce the national sample to ten 2011 ACS-covered counties per state in CO/MA/WA before
 seeing errors. Bulk LODES costs scale by state/year, not selected county count. Preserve

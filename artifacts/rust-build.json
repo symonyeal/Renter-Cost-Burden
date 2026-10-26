@@ -1,0 +1,24 @@
+{
+  "command": "cargo run --release --locked -- build",
+  "runtime": "Rust; model fitting remains the registered Python implementation",
+  "schema": 1,
+  "sha256": {
+    "Cargo.lock": "64aef1f645764709e5203ddd894a4a3ede5abfaa1cd8095cd5019c3e4371ed8d",
+    "Cargo.toml": "f26fd89987af3624db62d08189806611558425e22bafd655986c0ac8c50afaa6",
+    "config.json": "54b2f6e2a4d345fc08325a9e0c9f808bcaaee2e312bc243265df37ec68c3c585",
+    "data/processed/acs.csv": "ee01dc64fd0d84d5142d3de65d0a33a1050a77bbb98b59e3403c2c5d3caf3372",
+    "data/processed/canada.json": "03b1db85d54107192d72ec63f8210b16047bc582bf927367b03acb1ac39fa496",
+    "data/processed/cpi.csv": "f5f6f43d15e0031361c3b3142a5a0caa74e841005ce81205ec70d33ac707b5a3",
+    "data/processed/manifest.json": "038b102836cba1769c217b4905d1049ce3d900e2ac2b44760f51267098e09624",
+    "data/processed/predictions.csv": "3287a03662cff48ca492aedf4dc70f4cfb73ca7ae8c7ef07c6a661c539c4a067",
+    "rust-toolchain.toml": "7458b2d74495e6fb1c1edeea4d5a793705476431dadb60627187111f91441e13",
+    "site/app.js": "f4806084a59299300c8509cda4702f704ef8086c25fb835968c28d1398b3fd23",
+    "site/bundle.json": "b76fc3f6b53327c7159b0ccc0e1be43292335bcea0506697559af15bd1c1d8f6",
+    "site/index.html": "740ae5c8ea27ad7249a1edb37c0d1bdfb8c983f497a4d2bb8e12e2fd97b2acfe",
+    "site/style.css": "693e236544f72b31325740288a967e829c54ec761df8b5863293f32edbb8eaa6",
+    "src/canada.rs": "ae985c23ba3b564dbcbbe979eb0be546f6993eee53c5da4914f29fba84d290d8",
+    "src/kernel.rs": "579164a0758aa852ea4c14c2cfaa0a37c32837efb37b7bf13e41330e33422930",
+    "src/main.rs": "b4872e68a528c0e7dd0b460495fdaf2f1cabecdb751d050d934837604e7c5c76",
+    "src/us.rs": "40789e77edfc26ac2c75c2a1a61f16f050173dfe670942fa7e8c3177bfb77fcd"
+  }
+}

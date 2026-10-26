@@ -1,11 +1,11 @@
-"""Drive the static site in installed Microsoft Edge, desktop and mobile, under a subpath.
+"""Exercise the country atlas in installed Edge under a repository subpath.
 
-Legend
-  u    site URL under /site/      g   gap.json as written by analysis.gap
-  e    console errors and page exceptions; x failed requests; k checks passed
-  w    wait for the page's RENDERED flag
+Legend: b bundle; c country; m measure; r observation; u URL; e browser errors.
 """
+
+import csv
 import functools
+import io
 import json
 import threading
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -14,95 +14,154 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parents[1]
+WORK = ROOT.parents[1] / "renter-cost-burden"
 
 
 class Handler(SimpleHTTPRequestHandler):
-    """Quiet static file server; the site has no backend."""
-
     def log_message(self, *args):
         pass
 
 
 def run():
-    """Check the numbers shown against gap.json, the controls, downloads and mobile width."""
-    g = json.loads((ROOT / 'data/processed/gap.json').read_text())
-    t = next(p for p in g['periods'] if p['y1'] == 2024)
-    s = ThreadingHTTPServer(('127.0.0.1', 0), functools.partial(Handler, directory=str(ROOT)))
-    threading.Thread(target=s.serve_forever, daemon=True).start()
-    u = f'http://127.0.0.1:{s.server_port}/site/'
-    e, x, k = [], [], []
-    with sync_playwright() as p:
-        b = p.chromium.launch(channel='msedge', headless=True)
-        for scheme in ['light', 'dark']:
-            page = b.new_page(viewport={'width': 1440, 'height': 1000}, color_scheme=scheme)
-            page.on('pageerror', lambda m: e.append(str(m)))
-            page.on('console', lambda m: e.append(m.text) if m.type == 'error' else None)
-            page.on('requestfailed', lambda r: x.append(r.url))
-            w = lambda pg=page: pg.wait_for_function('window.RENDERED === true', timeout=120000)
+    b = json.loads((ROOT / "site/bundle.json").read_text(encoding="utf-8"))
+    shots = WORK / "shots"
+    shots.mkdir(parents=True, exist_ok=True)
+    server = ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(Handler, directory=str(ROOT)))
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    u = f"http://127.0.0.1:{server.server_port}/site/"
+    e, failed, checks = [], [], []
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(channel="msedge", headless=True)
+            page = browser.new_page(viewport={"width": 1440, "height": 1000})
+            page.on("pageerror", lambda error: e.append(str(error)))
+            page.on(
+                "console",
+                lambda message: e.append(f"{message.text} at {message.location}")
+                if message.type == "error" else None,
+            )
+            page.on("requestfailed", lambda request: failed.append(request.url))
             page.goto(u)
-            w()
-            page.screenshot(path=str(ROOT / f'qa/desktop-{scheme}.png'), full_page=True)
-            if scheme == 'dark':
-                page.close()
-                continue
-            assert page.locator('#status').inner_text() == ''
-            pooled = {r['year']: r for r in g['pooled']}
-            tiles = page.locator('#tiles').inner_text()
-            assert f"{pooled[2024]['b']:.1f}%" in tiles
-            moved = sum(c['verdict'] != 'within noise' for c in t['counties'])
-            assert f'{moved} of 30' in tiles
-            assert f"{pooled[2011]['b']:.1f}%" in page.locator('#answer').inner_text()
-            k.append('Headline numbers match gap.json')
-            c = next(c for c in t['counties'] if c['fips'] == '53067')
-            card = page.locator('#card').inner_text()
-            assert 'Thurston' in card and f"{c['b1']:.1f}%" in card
-            page.locator('#map path[data-f="08035"]').click()
-            page.wait_for_function("document.getElementById('card').innerText.includes('Douglas')")
-            assert 'county=08035' in page.url
-            page.select_option('#county', '25001')
-            page.wait_for_function(
-                "document.getElementById('card').innerText.includes('Barnstable')")
-            k.append('Map click and county list update the county card and URL')
+            page.wait_for_function("window.RENDERED === true")
+            assert page.locator("#status").inner_text() == ""
+            assert page.locator("#comparison tbody tr").count() == 13
+            assert page.locator("#geographyQuality").inner_text().startswith(
+                "Census geography quality code:")
+            page.locator("#comparison [data-place]").first.click()
+            assert page.locator("#place").input_value() == page.locator(
+                "#comparison [data-place]").first.get_attribute("data-place")
+            checks.append(
+                "Canadian comparison lists all 13 provinces/territories and selects a place")
+            for c in ["ca", "us"]:
+                page.locator(f'[data-country="{c}"]').click()
+                for m in b[c]["measures"]:
+                    available = [r for r in b[c]["observations"] if r["measure"] == m["id"]]
+                    if not available:
+                        continue
+                    page.select_option("#measure", m["id"])
+                    # Select a real geography and compare every table value to the bundle.
+                    g = str(available[0]["geo_id"])
+                    page.select_option("#place", g)
+                    expected = sorted(
+                        [r for r in available if str(r["geo_id"]) == g], key=lambda r: r["year"]
+                    )
+                    actual = page.locator("#observations tbody tr")
+                    assert actual.count() == len(expected), (c, m["id"])
+                    for i, r in enumerate(expected):
+                        value = actual.nth(i).get_attribute("data-value")
+                        assert value == "" if r["value"] is None else float(value) == r["value"]
+                        assert str(r["year"]) in actual.nth(i).inner_text()
+                        if r.get("status"):
+                            assert r["status"] in actual.nth(i).inner_text()
+                    latest = next(
+                        (r for r in reversed(expected) if isinstance(r["value"], (int, float))),
+                        None,
+                    )
+                    if latest:
+                        shown = (
+                            page.locator("#value").inner_text().replace(",", "").replace("%", "")
+                        )
+                        assert abs(float(shown) - latest["value"]) <= 0.051
+                    assert page.locator("#universe").inner_text() == "Population: " + m["universe"]
+                checks.append(
+                    f"{c}: all available measures, table values and latest values match bundle"
+                )
+                for width in [390, 768, 1440]:
+                    page.set_viewport_size({"width": width, "height": 1000})
+                    for theme in ["light", "dark"]:
+                        page.evaluate(
+                            "(theme) => { document.documentElement.dataset.theme = theme; }", theme
+                        )
+                        assert page.evaluate(
+                            "document.documentElement.scrollWidth <= innerWidth + 1"
+                        ), (c, width)
+                        page.evaluate("window.scrollTo(0, 0)")
+                        page.screenshot(
+                            path=str(shots / f"{c}-{width}-{theme}.png"), full_page=False
+                        )
+                        page.locator("#chart").screenshot(
+                            path=str(shots / f"{c}-{width}-{theme}-chart.png")
+                        )
+                checks.append(f"{c}: 390/768/1440 widths in light/dark have no page overflow")
+            old = page.locator("#place").input_value()
+            options = page.locator("#place option").all()
+            new = next(
+                option.get_attribute("value")
+                for option in options
+                if option.get_attribute("value") != old
+            )
+            page.select_option("#place", new)
             page.reload()
-            w()
-            assert page.locator('#county').input_value() == '25001'
-            k.append('County restores from the URL')
-            n = page.evaluate("document.getElementById('jobShare').data[1].x.length")
-            assert n == 30
-            old = page.locator('#jobsNote').inner_text()
-            page.select_option('#period', '2011-2019')
-            page.wait_for_function("document.getElementById('jobsNote').innerText !== "
-                                   + json.dumps(old))
-            assert '2011–2019' in page.locator('#jobsNote').inner_text()
-            k.append('Period control redraws the jobs charts')
-            final = page.evaluate("document.getElementById('board').data[0].x")
-            page.select_option('#block', 'development')
-            page.wait_for_function("JSON.stringify(document.getElementById('board').data[0].x)"
-                                   " !== " + json.dumps(json.dumps(final)))
-            k.append('Scoreboard switches between final test and earlier years')
-            assert page.locator('#countyTable tbody tr').count() == 30
-            assert page.locator('#holdouts tbody tr').count() == 4
-            k.append('County table has 30 rows; holdout table has 4')
-            for a in page.locator('a[download]').all():
-                r = page.request.get(u + a.get_attribute('href'))
-                assert r.status == 200 and len(r.body()) > 0, a.get_attribute('href')
-            k.append('Every download returns a nonempty HTTP 200')
-            page.set_viewport_size({'width': 390, 'height': 844})
-            page.goto(u)
-            w()
-            assert page.evaluate('document.documentElement.scrollWidth <= innerWidth + 1')
-            page.screenshot(path=str(ROOT / 'qa/mobile.png'), full_page=False)
-            k.append('390 px mobile width has no horizontal overflow')
-            page.close()
-        b.close()
-    s.shutdown()
+            page.wait_for_function("window.RENDERED === true")
+            assert page.locator("#place").input_value() == new
+            page.go_back()
+            assert page.locator("#place").input_value() == old
+            page.go_forward()
+            assert page.locator("#place").input_value() == new
+            checks.append("URL reload, browser back and forward restore selection")
+            with page.expect_download() as download:
+                page.locator("#csv").click()
+            text = Path(download.value.path()).read_text(encoding="utf-8")
+            exported = list(csv.DictReader(io.StringIO(text)))
+            assert len(exported) == page.locator("#observations tbody tr").count()
+            assert all(r["geo_id"] == new for r in exported)
+            checks.append("Selection CSV is downloadable and contains selected rows")
+            for link in page.locator("a[download]").all():
+                response = page.request.get(u + link.get_attribute("href"))
+                assert response.ok and len(response.body()) > 0
+            response = page.request.get(u + "us/index.html")
+            assert response.ok and len(response.body()) > 0
+            checks.append("Both country bundles and retained US study return nonempty HTTP 200")
+            page.locator("#theme").click()
+            assert page.locator("#theme").inner_text() == "Theme: light"
+            page.locator("#theme").click()
+            assert page.evaluate("document.documentElement.dataset.theme") == "dark"
+            assert page.locator("#chart .point").evaluate_all(
+                "els => els.every(el => getComputedStyle(el).fill !== 'rgb(164, 62, 28)')"
+            )
+            checks.append("Live theme toggle updates chart colour")
+            legacy = browser.new_page(viewport={"width": 1440, "height": 1000})
+            legacy.on("pageerror", lambda error: e.append(str(error)))
+            legacy.on("requestfailed", lambda request: failed.append(request.url))
+            legacy.goto(u + "us/")
+            legacy.wait_for_function("window.RENDERED === true", timeout=120000)
+            g = json.loads((ROOT / "data/processed/gap.json").read_text())
+            latest = max(g["pooled"], key=lambda r: r["year"])
+            assert f"{latest['b']:.1f}%" in legacy.locator("#tiles").inner_text()
+            assert legacy.locator("#status").inner_text() == ""
+            checks.append("Retained US site renders with its original aggregate burden value")
+            browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
     assert not e, e
-    assert not x, x
-    k.append('No console errors, page exceptions or failed requests, light and dark')
-    report = {'browser': 'installed Microsoft Edge (Chromium)', 'checks': k}
-    (ROOT / 'qa/browser.json').write_text(json.dumps(report, indent=2) + '\n')
+    assert not failed, failed
+    checks.append("No console errors, page exceptions or failed requests")
+    report = {"browser": "installed Microsoft Edge", "checks": checks, "screenshots": str(shots)}
+    WORK.mkdir(parents=True, exist_ok=True)
+    (WORK / "browser.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(report, indent=2))
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     run()

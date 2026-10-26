@@ -1,5 +1,50 @@
 # Validation — 2026-10-17
 
+## Rust and Canadian expansion, 2026-10-26
+
+Measured locally on Windows with Rust 1.99.1 and system Python 3.14.7. The older local Python
+dependency versions listed below remain in use; this session did not install the CI pins.
+
+| Check run this session | Result |
+| --- | --- |
+| Original offline pipeline and new `refit-us` entry point | Both completed; all 16 original processed files and both original fitted-model artifacts are byte-identical to the captured baseline. Build metadata changes with its build time and source paths. |
+| Rust `verify-us` command | 390 county-years, four burden fields each; zero bit differences, maximum absolute difference 0.0. Comparator rejects a known last-bit change. |
+| US atlas against reference exports | Exact county/year/measure membership and float64 money/burden values; every pooled burden, county change, growth figure, change margin and verdict matches. |
+| Optional Rust bootstrap | Exact float64 outputs and identical NumPy RNG state across tested block sizes, cancellation cases, signed zero and all production paired comparisons. NumPy retains draws and quantiles. |
+| `cargo test --locked` | 6 passed, 0 failed. |
+| `cargo fmt --check`; `cargo clippy --locked --all-targets -- -D warnings` | Both passed. |
+| `python -m pytest -q` with work-folder `--basetemp` | 43 passed, 1 skipped. The original US raw-cache check is skipped because that cache is absent; Canadian cache files do not count as a US raw cache. |
+| `python -m ruff check .`; `python -m pip check` | All checks passed; no broken requirements. |
+| Canadian ingestion | Five official tables; 4,337 observations including unavailable cells: 166 burden, 104 core housing need, 3,122 rent and 945 vacancy. |
+| `python qa/canada_sources.py` | All five ZIP hashes match. Independently matched four national Census counts, 312 CHS estimate/bound cells, all 3,122 rent cells and all 945 vacancy cells, including statuses. The Census check is a national spot check, not a second full implementation. |
+| Repeated offline builds and recovery | Bundle, US export and Rust build manifest have identical SHA-256 across builds. Changed collection settings and malformed Canadian JSON are rejected without overwriting accepted outputs. Restored inputs rebuild identically. |
+| `python qa/browser.py`, installed Edge | 11 checks: both countries and every measure, displayed values, all 13 provincial/territorial comparison rows, source/quality notes, downloads, URL reload/back/forward, live themes and original US site rendering. No console errors or failed requests; no overflow at 390/768/1440 px in light/dark. |
+
+Desktop, mobile and chart screenshots were inspected in two design rounds. The generic intro
+was removed so the selected observation appears earlier. Vacancy axes use a zero-based scale
+suited to their values; burden keeps its fixed 0–100% scale. Census geography quality codes and
+nonresponse rates are visible. The original vendored Plotly asset matches the saved baseline.
+
+The optional bootstrap was timed ten times per backend with the same 30-county final-test
+differences, seed and 2,000 resamples, including draws, JSON and process startup. Median call
+times were 0.000432 s for NumPy and 0.053069 s for the Rust subprocess. NumPy remains the
+default for that small kernel. Overall pipeline speedup was not measured or claimed.
+
+Rust owns Canadian ingestion/validation, US descriptive reconstruction and combined export.
+US scikit-learn fitting, original bulk US adapters and reference diagnostics remain in Python.
+Canadian sources were reprocessed from their cached official ZIPs. A second fresh network
+download, full raw US ingestion, Linux/macOS execution, pinned-version CI, Safari/Firefox,
+screen-reader testing and live GitHub Pages deployment were not measured. Canadian rents are
+nominal CAD; US money is in 2023 USD. Survey populations and years differ. Canadian analysis
+remains descriptive and the existing US forecast limits still apply.
+
+The original-run snapshot, profiles, timing records, rebuild/recovery output and screenshots
+are in `Useful Misc/Claude Func Folder/renter-cost-burden/` on the implementation machine.
+Portable reconstruction and source-check commands are in README.md; build and US parity
+manifests are under `artifacts/`.
+
+## Original US validation record
+
 The full official-data pipeline was executed locally with system Python 3.14.7. Raw retrieval,
 sequence/table parsing, county aggregation, model fitting and static export all completed.
 The final model fit was repeated after adding auditable calibration residuals; primary final

@@ -1,5 +1,30 @@
 # Sources
 
+## Canadian expansion, inspected 2026-10-26
+
+The Rust adapter parses the official ZIP CSVs and their metadata. Source URLs, ZIP and metadata
+SHA-256, retrieval dates and source release dates are retained in `data/processed/canada.json`.
+Definitions, selections and exclusions are in [CANADA.md](CANADA.md).
+
+| Official source | Use |
+| --- | --- |
+| [Statistics Canada 98-10-0252-01](https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=9810025201) | 2021 Census renter shelter-cost-to-income categories and geography quality flags |
+| [Statistics Canada 46-10-0085-01](https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=4610008501) | Canadian Housing Survey renter core housing need, with published confidence limits |
+| [CMHC via Statistics Canada 34-10-0133-01](https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=3410013301) | Two-bedroom mean rents, privately initiated row/apartment structures with at least three units |
+| [CMHC via Statistics Canada 34-10-0130-01](https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=3410013001) | Vacancy, all bedroom sizes, matching structure universe, metropolitan areas |
+| [CMHC via Statistics Canada 34-10-0131-01](https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=3410013101) | Vacancy, all bedroom sizes, matching structure universe, agglomerations of at least 50,000 |
+
+[Canada Regional Profiles](https://github.com/symonyeal/Canada-Regional-Profiles) informed
+geographic coverage and missing-value handling. It is a related implementation, not the source
+of this project's observations. Its live-API design is distinct from this reproducible build.
+
+The optional bootstrap reduction follows NumPy's pairwise sum and reduction identity:
+[NumPy 2.4.4 reduction loop](https://github.com/numpy/numpy/blob/v2.4.4/numpy/_core/src/umath/loops_arithm_fp.dispatch.c.src)
+and [pairwise summation](https://github.com/numpy/numpy/blob/v2.4.4/numpy/_core/src/umath/loops_utils.h.src).
+NumPy retains the random draws and quantiles. The small bootstrap stays on NumPy by default.
+
+## Original US sources
+
 Inspected 2026-10-17; individual raw-object retrieval dates and SHA-256 are in manifest.json.
 
 | Source | Used for | Status |

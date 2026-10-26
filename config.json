@@ -5,6 +5,7 @@
   "acs_years": [2011, 2024],
   "base_year": 2023,
   "seed": 271828,
+  "canada": {"first_year": 2011},
   "lags": {"acs": 1, "qcew": 2, "lodes": 4},
   "lodes_first_release": {"25": 2016},
   "target_years": [2014, 2024],

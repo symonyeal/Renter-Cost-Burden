@@ -162,6 +162,8 @@ def metrics(d, weighted=False):
 
 def paired(d):
     """Paired MAE differences: county-cluster bootstrap, preserving each county's years."""
+    from analysis.backend import bootstrap
+
     rows = []
     rng = np.random.default_rng(C['seed'])
     for (regime, model), a in d[d.model != 'persistence'].groupby(['regime', 'model']):
@@ -171,7 +173,7 @@ def paired(d):
             z = base.merge(all_, on=['fips', 'target_year'], suffixes=('_base', '_all'))
             z['delta'] = abs(z.pred_all - z.y) - abs(z.pred_base - z.y)
             g = z.groupby('fips').delta.mean().to_numpy()
-            b = rng.choice(g, size=(2000, len(g))).mean(axis=1)
+            b = bootstrap(g, rng)
             rows.append({'regime': regime, 'model': model, 'experiment': experiment,
                          'delta': float(g.mean()), 'lo': float(np.quantile(b, .1)),
                          'hi': float(np.quantile(b, .9)), 'n': len(z), 'clusters': len(g)})
