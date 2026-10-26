@@ -8,6 +8,7 @@ Definitions, selections and exclusions are in [CANADA.md](CANADA.md).
 
 | Official source | Use |
 | --- | --- |
+| [The Daily, housing table 4](https://www150.statcan.gc.ca/n1/daily-quotidien/220921/t004b-eng.htm) and its linked CSV | Published renter burden for 2016 and 2021, on common 2021 boundaries; kept separate from the detailed-table vintage |
 | [Statistics Canada 98-10-0252-01](https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=9810025201) | 2021 Census renter shelter-cost-to-income categories and geography quality flags |
 | [Statistics Canada 46-10-0085-01](https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=4610008501) | Canadian Housing Survey renter core housing need, with published confidence limits |
 | [CMHC via Statistics Canada 34-10-0133-01](https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=3410013301) | Two-bedroom mean rents, privately initiated row/apartment structures with at least three units |

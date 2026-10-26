@@ -4,7 +4,29 @@ The Canadian section describes renter shelter costs, rental-market rents and vac
 It does not fit forecasts. Each measure keeps its own population, geography and reference
 period. The Canadian data do not extend the registered US forecast experiment.
 
-## Shelter costs use the 2021 Census
+## Renter burden has a 2016–2021 comparison
+
+[The Daily, table 4](https://www150.statcan.gc.ca/n1/daily-quotidien/220921/t004b-eng.htm)
+publishes renter burden for both Census years on common 2021 geographic boundaries. The adapter
+reads its official UTF-8 CSV, selects the two renter columns by their verified headers and retains
+the published one-decimal percentages. It supplies 110 observations across Canada, all thirteen
+provinces/territories and 41 metropolitan areas. At the national level the published percentages
+are 40.0% in 2016 and 33.2% in 2021. Costs refer to the Census year; income is for the preceding
+year. Temporary pandemic income support affects the 2020 income used for 2021.
+
+This is the default historical burden measure. Its IDs are scoped to the comparison publication;
+name matching is not used to harmonize geographies from different sources. The year selector
+changes the displayed estimate and same-source place comparison. Observed years remain visible
+in the chart and table; no values or connecting lines fill the intervening years.
+
+The comparison is kept separate from the detailed 2021 table below. The Daily publication
+is an earlier vintage and reports rounded percentages; a later detailed-table reconstruction can
+differ. For example, its Nunavut renter figure is 5.2% whereas the detailed count reconstruction
+rounds to 5.3%. Neither value silently replaces the other. Sampling intervals are not supplied.
+The 2011 housing data came from the voluntary National Household Survey, a different survey
+design; it is not appended as an interchangeable Census observation.
+
+## Detailed shelter-cost counts use the 2021 Census
 
 [Statistics Canada table 98-10-0252-01](https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=9810025201)
 reports shelter-cost-to-income categories separately for renters. Select total household

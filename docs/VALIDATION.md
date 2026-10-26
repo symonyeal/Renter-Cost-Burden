@@ -1,5 +1,27 @@
 # Validation — 2026-10-17
 
+## Additional years and release checks, 2026-10-26
+
+The official 2016–2021 Census comparison adds 110 renter-burden observations across 55
+geographies on common 2021 boundaries. They are a separate measure from the detailed 2021
+count reconstruction. The Canadian export now contains 4,447 observations from six sources.
+All 110 new values and their source checksum match an independent reading of the UTF-8 CSV.
+The existing five-source checks also passed. Accented geography names are retained.
+
+The year control changes the displayed value and same-source place comparison, persists in
+the URL and survives reload. The historical national selection shows the source's 40.0% in
+2016 and 33.2% in 2021; earlier detailed-count values are not spliced into this series.
+
+Local checks: Rust 7 passed; Python 44 passed, 1 skipped (absent original US raw cache);
+fmt, clippy with warnings denied, Ruff and pip dependency checks passed. Installed-Edge QA
+passed 12 checks, including historical values and year restoration; both countries retain
+all measure, download, history, theme and responsive checks. Rust US reconstruction still
+reports zero bit differences across 390 county-years and four burden fields.
+
+A source download through Rust succeeded using system certificate roots outside this machine's
+sandbox. Certificate validation remains enabled. GitHub's clean-image CI and Pages deployment
+are checked for the pushed release SHA; they are separate from these local measurements.
+
 ## Rust and Canadian expansion, 2026-10-26
 
 Measured locally on Windows with Rust 1.99.1 and system Python 3.14.7. The older local Python

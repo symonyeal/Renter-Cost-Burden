@@ -172,7 +172,7 @@ p {
 }
 .controls {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr 1fr minmax(80px, .3fr);
   gap: var(--s5);
   padding-block: var(--s5);
   border-block: var(--line) solid var(--rule)
@@ -247,6 +247,9 @@ figure {
 }
 .share-value {
   fill: var(--accent);
+}
+tr.is-selected {
+  background: var(--surface);
 }
 .series {
   stroke: var(--accent);
@@ -413,8 +416,11 @@ footer p {
     padding-top: var(--s6)
   }
   .controls {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr) minmax(80px, .35fr);
     gap: var(--s4)
+  }
+  .controls label:first-child {
+    grid-column: 1 / -1;
   }
   .readout {
     grid-template-columns: 1fr;

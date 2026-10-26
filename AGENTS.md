@@ -14,6 +14,8 @@ The default atlas build is `cargo run --release --locked -- build`; it runs offl
 Rust owns Canadian sources, descriptive exports and the combined site; Python retains the US
 models, bulk US adapters and reference diagnostics. `refit-us` reruns the US study and builds both.
 Canadian Census burden, CHS core housing need and CMHC rents/vacancies have different populations.
+The 2016–2021 burden comparison is one common-boundary publication; keep it separate from the
+detailed 2021 counts and preserve each vintage's values. The year control must survive URL reload.
 Keep their definitions, periods, source flags and geography quality notes attached. Never fill
 suppressed cells or interpolate burden between surveys. `fetch-ca` is an explicit source refresh;
 `canada.first_year` defaults to 2011. A changed collection window requires regeneration.

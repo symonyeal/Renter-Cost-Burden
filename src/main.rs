@@ -2,6 +2,7 @@
 //! Legend: r repository root; c configuration; ca Canadian exports; us US exports;
 //! p path; b bytes; h content hash; d delivered data; e process exit status.
 mod canada;
+mod history;
 mod kernel;
 mod us;
 
@@ -58,6 +59,7 @@ fn build(r: &Path) -> Result<(), E> {
         "src/us.rs",
         "src/canada.rs",
         "src/kernel.rs",
+        "src/history.rs",
         "site/index.html",
         "site/app.js",
         "site/style.css",
