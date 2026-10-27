@@ -1,13 +1,13 @@
 [package]
 name = "renter-cost-burden"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
-description = "Reproducible Canadian and US renter cost burden analysis"
+description = "Canadian renter housing costs: official tables, derived series and an interactive atlas"
 publish = false
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
-serde_json = { version = "1", features = ["float_roundtrip"] }
+serde_json = { version = "1", features = ["float_roundtrip", "preserve_order"] }
 csv = "1"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls-native-roots"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }

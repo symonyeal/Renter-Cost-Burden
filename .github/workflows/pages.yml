@@ -2,7 +2,7 @@ name: pages
 on:
   push:
     branches: [main]
-    paths: ['site/**', '.github/workflows/pages.yml']
+    paths: ['site/**', 'data/**', 'src/**', 'Cargo.*', '.github/workflows/pages.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -19,6 +19,9 @@ jobs:
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      # site/data is generated: built offline from the committed data/processed files.
+      - run: cargo run --release --locked -- build
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

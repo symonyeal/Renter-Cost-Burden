@@ -1,148 +1,122 @@
 # Renter Cost Burden
 
-Explore renter shelter costs in Canada and the United States. The site gives both countries
-equal prominence, with each measure's population, period, quality flags and downloadable data.
-The US section covers a fixed regional sample; it is not a national US estimate.
-
-## Canadian coverage
-
-| Measure | Published periods | Geography |
-| --- | --- | --- |
-| Renter burden, historical comparison | 2016 and 2021 Censuses, common 2021 boundaries | Canada, all 13 provinces/territories and 41 metropolitan areas |
-| Renters spending at least 30% of income on shelter | 2021 Census | Canada, all 13 provinces/territories and 152 metropolitan/agglomeration areas |
-| Renters in core housing need | 2018, 2021, 2022, 2024 Canadian Housing Survey | Provinces-only national estimate, provinces and selected metros |
-| Two-bedroom average monthly rent | 2011–2025 CMHC Rental Market Survey | Source-supported rental markets; nominal CAD |
-| Rental vacancy rate, all bedroom sizes | 2011–2025 CMHC Rental Market Survey | Source-supported metros and agglomerations |
-
-Burden and core housing need are different measures. Rent describes the surveyed rental stock,
-not asking rent or household burden. Missing observations remain missing. Canadian and US
-currencies, years and survey populations are not pooled. See [Canadian definitions](docs/CANADA.md).
-The year control changes the displayed estimate and place comparison; the chart and observation
-table retain all available years. The historical burden series uses the same published comparison
-for both years. Detailed 2021 counts remain a separate measure because revisions and rounding
-can differ. Earlier 2011 housing estimates come from the voluntary National Household Survey;
-they are not joined to this Census comparison. There are no estimates interpolated between years.
-
-## Rust pipeline
-
-Rust handles Canadian downloads and parsing, source validation, both countries' descriptive
-exports and the combined site bundle. The US scikit-learn fitting and registered diagnostics
-remain in Python as the reference implementation. The original bulk US source adapters also
-remain in Python; the raw US cache is not needed for the default offline build.
-
-Install the stable Rust toolchain, then run:
-
-```text
-cargo run --release --locked -- build       # offline analysis and combined site bundle
-cargo run --release --locked -- verify-us   # exact US burden reconstruction
-cargo run --release --locked -- fetch-ca    # explicitly fetch/reuse Canadian source ZIPs
-cargo run --release --locked -- refit-us    # Python US study, then Rust site export
-cargo test --locked
-cargo clippy --locked --all-targets -- -D warnings
-```
-
-The optional US bootstrap backend can be selected with `RCB_BACKEND=rust` after building the
-release executable. Python remains the default for that small kernel; startup and JSON transfer
-must be included in any performance comparison. NumPy supplies identical random draws and
-computes quantiles in both paths. No speedup is claimed for the rewrite as a whole.
-
-The Rust build reads committed processed inputs and needs no network or Python installation.
-Canadian source ZIPs and retrieval records are cached under `data/raw/canada/`; processed
-exports retain source hashes, dates, disclosure symbols and Census geographic quality codes.
-`artifacts/rust-build.json` records build input and output hashes.
-The annual collection floor is `canada.first_year` in `config.json`, default 2011. A changed
-window requires `fetch-ca` to regenerate the export; the offline build rejects a stale window.
-With the optional source cache present, `python qa/canada_sources.py` checks source cells and ZIP
-hashes independently of the Rust parser.
-
-Serve `site/` with `python -m http.server 8765 --directory site`. The rebuilt atlas opens at
-http://localhost:8765/; the preserved US study is at http://localhost:8765/us/.
-Run `python qa/browser.py` for installed-Edge checks at desktop, tablet and mobile widths.
-
-The related [Canada Regional Profiles](https://github.com/symonyeal/Canada-Regional-Profiles)
-project informed geography and missing-data handling. This project uses versioned processed
-observations for reproducible analysis; its related dashboard queries live APIs.
-
-## Registered US study
-
-Did renter incomes keep up with rent in the 30 largest counties of Colorado, Massachusetts and
-Washington between 2011 and 2024? And did job growth make renters worse off?
+How much do Canadian renters pay, how has it changed, and where is it hardest? This project
+gathers the official answers from Statistics Canada and CMHC into one interactive atlas, with
+every province, territory, metro area and 5,161 communities. You can compare any of them with
+each other.
 
 **Site: https://symonyeal.github.io/Renter-Cost-Burden/**
 
-## What the data shows
+## What the tables show
 
-A renter household is *stretched* when rent and utilities take 30% or more of its income.
-All figures are from Census and BLS data; dollars are adjusted for inflation.
+- **One renter household in three spends 30% or more of its income on shelter.** The 2021
+  Census put it at 33.2%, down from 40.0% in 2016. The 2021 Census asked about 2020 income,
+  which included pandemic benefits, so part of the fall is temporary income support rather than
+  cheaper housing.
+- **Rents for the same units kept pace with prices; average rents did not.** The CPI rent
+  index, which prices the same rental units over time, rose 68.6% from 2000 to 2025 against
+  72.1% for all consumer prices. Average two-bedroom rents in the CMHC survey rose faster. In
+  the typical metro area they rose 31% more than prices from 2015 to 2025 (median of 40 metro
+  areas, in 2025 dollars), because newer and dearer units entered the stock.
+- **Rent is still rising fast.** In 2025, two-bedroom rents rose more than 5% in 24 of the 40
+  metro areas with a published change. Vancouver had the highest metro two-bedroom rent
+  ($2,364); Canmore, Alberta, an agglomeration, was higher still ($2,438).
+- **About one renter household in five is in core housing need.** That was 22.0% in the ten
+  provinces in 2024, the same as in 2018. It was highest in Saskatchewan and British Columbia
+  (29%) and lowest in Quebec (13.7%). Core housing need is a stricter test than the 30% rule: the
+  home must also be unaffordable, crowded or in poor repair, with no acceptable local option
+  under 30% of income.
+- **Burden falls steeply with income.** In 2021, 77% of renter households with $10,000–20,000
+  of income spent 30% or more, against 2.5% of those with $100,000 or more. People living alone
+  were the most stretched household type (45.3%).
+- **Building per person is half its 1970s peak.** Canada started 6.2 homes per 1,000 residents
+  in 2025, against 11.9 in 1973. Apartments were 66% of starts in 2025, against 24% in 1995.
 
-1. **Half of renters are stretched, as in 2011.** 51.2% of renter households were stretched in
-   2011 and 51.9% in 2024, a difference inside the survey margin (±1.0 point). The share fell to
-   48.8% in 2019 and rose again after the pandemic.
-2. **Rent and renter income grew at the same pace.** In the median county, rent rose 33% and the
-   median renter's income 32%.
-3. **Seven counties changed by more than the survey can miss.** The share rose in Douglas CO
-   (+11.5 points), Thurston WA (+10.7), El Paso CO (+6.5) and Essex MA (+4.7), where rent outgrew
-   renter income by 8 to 18 log points. It fell in Yakima WA (−16.4), Barnstable MA (−13.5) and
-   Spokane WA (−6.1), where income outgrew rent.
-4. **Job growth raised rent about twice as fast as renter income.** Per 10% more jobs, rent rose
-   5.6% (80% range 3.7 to 8.7) and renter income 2.9% (0.1 to 6.8). Before the pandemic, the
-   share stretched rose 1.8 points per 10% more jobs (0.2 to 3.5); over 2011–2024 the estimate
-   (+0.8) does not resolve.
-5. **Next year's share cannot be forecast.** A county's share moves about 3.7 points in a
-   typical year, and survey sampling error alone would move it 4.0. Carrying last year's value
-   forward missed by 2.85 points on 2023–2024. A regression on housing, jobs and commuting
-   missed by 3.60, and boosted trees by 3.12. With a whole state left out, adding commuting
-   data raised the miss in all six tests, by more than the 80% range in four.
+## How the atlas treats the numbers
 
-The full tables, every county and every range are in [Findings](docs/FINDINGS.md).
+**Each measure keeps its own population and period.** The 30% burden rate comes from the
+Census and covers renter households with income above zero. Core housing need comes from the
+Canadian Housing Survey and covers the ten provinces only. Average rent and vacancy come from
+CMHC's survey of purpose-built rental buildings with three or more units. The CPI rent index
+follows the same units over time. These describe different things, so the site never divides
+one by another or presents one as another. A median rent divided by a median income is not a
+burden rate, and the site does not compute one.
 
-**What this does not show.** Thirty large counties in three states do not represent the United
-States. These are associations, not causes. Median renter income describes whoever rents that
-year, so part of its rise may be higher earners moving into renting rather than raises.
+**Nothing is filled in.** Census years are 2016 and 2021, and Housing Survey years are 2018,
+2021, 2022 and 2024. Charts show those years as separate points and draw nothing between them.
+Cells that Statistics Canada suppressed stay empty, with their status flag shown on hover.
 
-## How it was done
+**Small places get a warning, not a guess.** Census counts are randomly rounded to multiples
+of five, and small counts can round to zero. A community with 55 renter households can show
+0% burdened when the true figure is a handful. The community map shows every community. The
+ranking, the colour scale and the strip chart use only those with 250 or more renter households,
+and every tooltip gives the renter count.
 
-- **Survey error first.** Every change is compared with its Census 90% margin, computed with
-  the Census formula for a proportion. A change smaller than its margin is reported as such.
-- **Forecasts use only what was published.** Each forecast stands at December 31 and predicts
-  the next year from figures released by then (survey one year late, jobs two, commuting four).
-  2023–2024 was held back as the final test and was registered before scoring.
-- **Later additions are labelled.** A three-year average and a partial-pooling model were added
-  after the final test had been scored. They beat carrying forward in 2017–2022 (the three-year
-  average by 0.58 points) but not in 2023–2024. They are kept apart from the original results.
+**The two Census tables have to agree.** Burden for Canada, provinces and metro areas comes
+from table 98-10-0252. Burden for census divisions and communities comes from 98-10-0255. The
+build checks that both give the same provincial rates to within rounding. That check showed
+98-10-0252 excludes households on reserve, so the community table is read the same way.
 
-Definitions and formulas: [Methods](docs/METHODS.md). Exclusions: [Coverage](docs/COVERAGE.md).
-Checks run: [Validation](docs/VALIDATION.md). Dated decisions: [Decisions](docs/DECISIONS.md).
+**Inflation adjustment uses the province's own prices.** Real rents use the all-items CPI of
+the centre's province, in 2025 dollars. Where a province's CPI is not published for a year, the
+real rent for that year is left empty.
 
-## Reproduce the US study
+**Places join on Statistics Canada codes, not names.** Sources publish codes from the 2006,
+2011, 2016 and 2021 Censuses. The atlas drops the vintage and keeps the code (Toronto is
+`m-535` in every table). Each value records which vintage it came from, because survey areas
+are redrawn after each Census. Two sources needed repair. The Housing Survey table writes
+St. John's code without its leading zeros, and some CMHC centres have no code at all; those
+centres keep a source-specific id so they are never matched by name to a different area.
 
-System Python 3.14; no virtual environment.
+The full definitions, universes and caveats for every measure are in
+[docs/METHODS.md](docs/METHODS.md) and in the Sources section of the site.
 
-```powershell
-python -m pip install -r requirements.txt
-python -m analysis              # every stage below, in order
-python -m analysis.data         #   download sources and aggregate (about 1 GB on first run)
-python -m analysis.models       #   forecast panel, fits, held-out forecasts, scores
-python -m analysis.comparison   #   forecasts against carrying forward, with omission checks
-python -m analysis.gap          #   county changes, survey noise, forecasts added later
-python -m analysis.build_site   #   site bundle, FINDINGS.md, COVERAGE.md
-python -m pytest -q
-python -m ruff check .
+## Sources
+
+| Table | What | Years |
+| --- | --- | --- |
+| [34-10-0133](https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=3410013301) | CMHC average rents by bedroom count, 244 centres | 1987–2025 |
+| [34-10-0130](https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=3410013001), [34-10-0131](https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=3410013101) | CMHC vacancy rates, metro areas and agglomerations of 50,000+ | 1992–2025 |
+| [18-10-0005](https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=1810000501) | Consumer Price Index, annual: rent, shelter, all items | 1914–2025 |
+| [11-10-0190](https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=1110019001) | Median after-tax income, constant dollars | 1976–2024 |
+| [17-10-0005](https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=1710000501), [17-10-0148](https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=1710014801) | Population, provinces and metro areas | 1971–2026 |
+| [34-10-0126](https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=3410012601) | CMHC housing starts and completions by dwelling type | 1955–2025 |
+| [46-10-0085](https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=4610008501), [46-10-0086](https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=4610008601) | Canadian Housing Survey: core housing need and its causes | 2018–2024 |
+| [98-10-0252](https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=9810025201) | 2021 Census renter burden by income and household type | 2021 |
+| [98-10-0255](https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=9810025501) | 2021 Census renter burden for divisions and communities | 2021 |
+| [The Daily, 2022-09-21, table 4](https://www150.statcan.gc.ca/n1/daily-quotidien/220921/t004b-eng.htm) | Renter burden 2016 and 2021 on common boundaries | 2016, 2021 |
+| [2021 cartographic boundaries](https://geo.statcan.gc.ca/geo_wa/rest/services/2021/Cartographic_boundary_files/MapServer) | Provinces, divisions, metro areas, communities | 2021 |
+
+Data: Statistics Canada and CMHC, Open Government Licence – Canada.
+
+## Project map
+
+The pipeline is Rust. `cargo run --release --locked -- build` works offline: it reads the
+committed files in `data/processed/` and writes the site's data to `site/data/`.
+
+```text
+cargo run --release --locked -- build      # offline: derived series, headline facts, site data
+cargo run --release --locked -- fetch      # read the official tables (download any missing), then build
+cargo run --release --locked -- fetch-geo  # retrieve 2021 boundaries from Statistics Canada, then build
+cargo test --locked
+python qa/sources.py                       # independent cell-by-cell check against the raw tables
+python qa/browser.py                       # browser checks (pip install -r requirements-qa.txt)
 ```
 
-Downloads are cached in `data/raw/` (not in the repository). Per-state-year commuting and
-historical QCEW aggregates are cached in `data/interim/`, so every stage after `analysis.data`
-runs offline from the committed `data/processed/` files.
+| Path | Holds |
+| --- | --- |
+| `src/statcan.rs` | Table download, cache, provenance (retrieval time, SHA-256) and row reader |
+| `src/sources.rs`, `src/census.rs`, `src/history.rs` | One adapter per table |
+| `src/place.rs` | Place ids from Statistics Canada codes; observation validation |
+| `src/geo.rs` | Boundary retrieval, island pruning, compact encoding, label points |
+| `src/atlas.rs` | Derived series (real rent, yearly change, starts per 1,000), facts, site export |
+| `data/measures.json` | Title, unit, universe and caveats for every measure; the build rejects a measure without one |
+| `data/processed/` | `observations.csv` (every value with its status and source), `places.csv`, `sources.json`, `geo/` |
+| `site/` | The atlas: D3 7.9.0, no build step |
 
-To view the site locally, run `python -m http.server 8765 --directory site` and open
-http://localhost:8765 (opening `index.html` as a file cannot load `data.json`). Browser checks:
-`pip install -r requirements-qa.txt`, then `python qa/browser.py` (uses installed Microsoft Edge).
+Raw downloads go to `data/raw/` and are not committed. `site/data/` is generated by the build,
+locally and on GitHub Pages.
 
-| Path | Contents |
-|---|---|
-| `analysis/` | `data.py` sources, `models.py` forecasts, `comparison.py` paired checks, `gap.py` county changes and noise, `build_site.py` reports and site |
-| `config.json` | Sample, years, publication delays, seed, input groups, tuning grids |
-| `data/processed/` | Survey estimates, forecast panel, forecasts, scores, `gap.json`, source checksums |
-| `artifacts/` | Fit records, final fitted models, build hashes |
-| `site/` | Static site; `data.json` and `downloads/` are generated |
-| `tests/`, `qa/` | Data and timing checks; browser checks |
+The registered 30-county US forecasting study that this repository held until October 2026 is
+preserved at the git tag
+[`us-county-study`](https://github.com/symonyeal/Renter-Cost-Burden/tree/us-county-study).

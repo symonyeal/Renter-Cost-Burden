@@ -12,13 +12,6 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --locked --all-targets -- -D warnings
       - run: cargo test --locked
-      - run: cargo run --release --locked -- verify-us
+      # Offline build from committed data/processed; a second build must reproduce every byte.
       - run: cargo run --release --locked -- build
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.14'
-          cache: pip
-      - run: python -m pip install -r requirements.txt
-      - run: python -m ruff check .
-      - run: python -m pytest -q
-      - run: python -m pip check
+      - run: cp site/data/manifest.json /tmp/first.json && cargo run --release --locked -- build && cmp site/data/manifest.json /tmp/first.json

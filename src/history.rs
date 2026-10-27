@@ -1,27 +1,32 @@
-//! Published Census comparison, kept apart from the detailed 2021 count reconstruction.
-//! Legend: r repository; b source bytes; h source row; g geography; y year;
-//! v published percent; d observations; p cache path; i CSV column index.
-use crate::E;
+//! Census 2016 and 2021 renter burden on common 2021 boundaries (The Daily, 2022-09-21, table 4).
+//! Legend: b source bytes; h source row; g geography; y year; v published percent;
+//! r registry; k place id; p cache path.
+//!
+//! Kept apart from the detailed 2021 counts: the release is earlier and published to one
+//! decimal, so its 2021 values can differ from a count reconstruction. Never spliced.
+use crate::{
+    E, net,
+    place::{Obs, PROVINCES, Registry},
+};
 use chrono::Utc;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-use std::{collections::BTreeSet, fs, path::Path, time::Duration};
+use std::{collections::BTreeSet, fs, path::Path};
 
-const ID: &str = "census-comparison-2016-2021";
+pub const ID: &str = "census-comparison-2016-2021";
 const URL: &str = "https://www150.statcan.gc.ca/n1/daily-quotidien/220921/t004b-eng.csv";
 
-fn parse(b: &[u8]) -> Result<Vec<Value>, E> {
+/// (geography, is metro section, 2016 value, 2021 value) rows of the renter columns.
+fn parse(b: &[u8]) -> Result<Vec<(String, bool, f64, f64)>, E> {
     let text = std::str::from_utf8(b)?.trim_start_matches('\u{feff}');
-    let mut csv = csv::ReaderBuilder::new()
+    let mut c = csv::ReaderBuilder::new()
         .has_headers(false)
         .flexible(true)
         .from_reader(text.as_bytes());
-    let mut header = false;
-    let mut years = false;
-    let mut metros = false;
+    let (mut header, mut years, mut metros) = (false, false, false);
     let mut d = Vec::new();
-    let mut keys = BTreeSet::new();
-    for h in csv.records() {
+    let mut seen = BTreeSet::new();
+    for h in c.records() {
         let h = h?;
         if h.get(5).is_some_and(|s| s.contains("Renter households")) {
             header = true;
@@ -39,76 +44,74 @@ fn parse(b: &[u8]) -> Result<Vec<Value>, E> {
             metros = true;
             continue;
         }
-        if !years || h.len() < 7 || h.get(5).unwrap_or_default().parse::<f64>().is_err() {
+        if !years || h.len() < 7 || h[5].parse::<f64>().is_err() {
             continue;
         }
-        let level = if g == "Canada" {
-            "country"
-        } else if metros {
-            "metro"
-        } else if matches!(g, "Yukon" | "Northwest Territories" | "Nunavut") {
-            "territory"
-        } else {
-            "province"
-        };
-        // IDs are explicitly scoped to this common-boundary publication. They do not
-        // pretend that a name-only match harmonizes a different source's geography.
-        let id = format!("{ID}:{g}");
-        for (i, y) in [(5, 2016), (6, 2021)] {
-            let v: f64 = h[i].parse()?;
-            if !v.is_finite() || !(0.0..=100.0).contains(&v) || !keys.insert((g.to_owned(), y)) {
-                return Err(format!("invalid/duplicate comparison value {g}/{y}").into());
+        let (a, b): (f64, f64) = (h[5].parse()?, h[6].parse()?);
+        for v in [a, b] {
+            if !(0.0..=100.0).contains(&v) {
+                return Err(format!("comparison value outside 0-100: {g}").into());
             }
-            d.push(json!({"geo":g,"geo_id":id,"level":level,"year":y,
-                "measure":"burden_history","value":v,"lower":null,"upper":null,
-                "status":"published to one decimal","source":ID,
-                "geography_vintage":2021,"income_year":y-1}));
         }
+        if !seen.insert(g.to_owned()) {
+            return Err(format!("duplicate comparison geography {g}").into());
+        }
+        d.push((g.to_owned(), metros, a, b));
     }
-    if !header || !years || !d.iter().any(|o| o["geo"] == "Canada") {
-        return Err("Census comparison headers or national observations missing".into());
+    if !header || !years || !d.iter().any(|x| x.0 == "Canada") {
+        return Err("Census comparison headers or national row missing".into());
     }
-    let pt = d
-        .iter()
-        .filter(|o| o["year"] == 2016 && o["level"] != "metro")
-        .count();
-    if pt != 14 {
-        return Err(
-            format!("comparison needs national + 13 provinces/territories; got {pt}").into(),
-        );
+    if d.iter().filter(|x| !x.1).count() != 14 {
+        return Err("comparison needs Canada and 13 provinces/territories".into());
     }
     Ok(d)
 }
 
-pub fn run(r: &Path) -> Result<(Value, Vec<Value>), E> {
-    let dir = r.join("data/raw/canada");
-    fs::create_dir_all(&dir)?;
+/// Observations keyed to registered places. Metros match the 2021 Census table by name and
+/// must all resolve; run after the Census adapters.
+pub fn run(root: &Path, r: &mut Registry) -> Result<(Value, Vec<Obs>), E> {
+    let dir = root.join("data/raw/canada");
     let p = dir.join(format!("{ID}.csv"));
     let stamp = dir.join(format!("{ID}.retrieval.json"));
     if !p.exists() {
-        let b = reqwest::blocking::Client::builder()
-            .timeout(Duration::from_secs(90))
-            .build()?
-            .get(URL)
-            .send()?
-            .error_for_status()?
-            .bytes()?;
+        let b = net::bytes(URL, 120)?;
         parse(&b)?;
+        fs::create_dir_all(&dir)?;
         fs::write(&p, &b)?;
         crate::write(
             &stamp,
-            &json!({"retrieved":Utc::now().to_rfc3339(),"timestamp_basis":"download completed"}),
+            &json!({"retrieved": Utc::now().to_rfc3339(), "basis": "download completed"}),
         )?;
     }
     let b = fs::read(&p)?;
-    let d = parse(&b)?;
-    let time = crate::read(&stamp)?;
-    let source = json!({"id":ID,"title":"Census renter burden, 2016 and 2021 (common 2021 boundaries)",
-        "url":"https://www150.statcan.gc.ca/n1/daily-quotidien/220921/t004b-eng.htm",
-        "download_url":URL,"format":"CSV (UTF-8 with BOM)","cache":format!("{ID}.csv"),
-        "retrieved":time["retrieved"],"timestamp_basis":time["timestamp_basis"],
-        "sha256":format!("{:x}",Sha256::digest(&b)),"bytes":b.len(),"release_date":"2022-09-21"});
-    Ok((source, d))
+    let mut o = Vec::new();
+    for (g, metro, a, b2) in parse(&b)? {
+        let k = if g == "Canada" {
+            "can".to_owned()
+        } else if !metro {
+            let pr = PROVINCES
+                .iter()
+                .find(|x| x.1 == g)
+                .ok_or_else(|| format!("unknown province {g}"))?
+                .0;
+            format!("pr-{pr}")
+        } else {
+            r.find(&g, &["metro", "agglomeration"])
+                .ok_or_else(|| format!("comparison metro {g} matches no 2021 Census place"))?
+        };
+        for (y, v) in [(2016, a), (2021, b2)] {
+            let mut x = Obs::new("burden_history", "", &k, y, Some(v), ID);
+            x.status = "published to one decimal".into();
+            x.vintage = "2021".into();
+            o.push(x);
+        }
+    }
+    let t = crate::read(&stamp)?;
+    let source = json!({"id": ID, "title": "Percent of households spending 30% or more of income on shelter cost by tenure, 2016 and 2021 (The Daily, table 4)",
+        "url": "https://www150.statcan.gc.ca/n1/daily-quotidien/220921/t004b-eng.htm",
+        "download": URL, "retrieved": t["retrieved"], "retrieved_basis": t["basis"],
+        "sha256": format!("{:x}", Sha256::digest(&b)), "bytes": b.len()});
+    Ok((source, o))
 }
 
 #[cfg(test)]

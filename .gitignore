@@ -6,3 +6,4 @@ qa/*.png
 qa/browser.json
 target/
 *.pending
+site/data/
