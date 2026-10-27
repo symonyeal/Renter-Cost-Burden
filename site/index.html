@@ -1,205 +1,200 @@
 <!DOCTYPE html>
-<!-- Reader: compare renter costs across places. Action: select a country, place and measure, then inspect published observations.
-Direction: editorial statistical atlas; Georgia/Arial, paper/ink/rust, thin rules, oversized latest observation. -->
+<!-- Reader: anyone comparing renter costs across Canadian places and years. Job: pick a measure, a year and
+     places; read the map, the trends and the definitions. Direction: almanac atlas. Fraunces + Work Sans on paper,
+     six region hues; signature move is the time-lapse map with a year scrubber. -->
 <html lang="en">
- <head>
-  <meta charset="utf-8"/>
-  <meta content="width=device-width,initial-scale=1" name="viewport"/>
-  <meta content="Renter housing costs in Canada and a 30-county United States study. Published observations, source definitions and downloadable data." name="description"/>
-  <meta content="light dark" name="color-scheme"/>
-  <title>
-   Renter Cost Burden · Canada &amp; United States
-  </title>
-  <link href="style.css" rel="stylesheet"/>
-  <link href="data:," rel="icon"/>
-  <script defer="" src="app.js">
-  </script>
- </head>
- <body>
-  <a class="skip" href="#explore">
-   Skip to data
-  </a>
-  <header class="wrap masthead">
-   <div>
-    <a class="wordmark" href="./">
-     Renter Cost Burden
-    </a>
-    <p>
-     Canada &amp; United States · a housing data atlas
-    </p>
-   </div>
-   <button aria-label="Change colour theme" id="theme" type="button">
-    Theme: system
-   </button>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="description" content="Renter housing costs in Canada: rents since 1987, rent prices since 1949, incomes, vacancy, housing starts, Census renter burden and core housing need, for provinces, metro areas and 5,161 communities.">
+  <meta property="og:title" content="Renter Cost Burden: Canada">
+  <meta property="og:description" content="Rents, incomes, vacancy and renter burden for every province, metro area and community, from official Statistics Canada and CMHC tables.">
+  <title>Renter Cost Burden · Canada</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Work+Sans:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%23C8502A'/%3E%3Cpath d='M3 12V7l5-4 5 4v5z' fill='%23F3EEE3'/%3E%3C/svg%3E">
+  <script defer src="vendor/d3-7.9.0.min.js"></script>
+  <script defer type="module" src="js/main.js"></script>
+</head>
+<body>
+  <a class="skip" href="#map-section">Skip to the map</a>
+  <header class="masthead wrap">
+    <div>
+      <a class="wordmark" href="./">Renter Cost Burden</a>
+      <p class="tagline">Canadian rents, incomes and housing stress for provinces, metro areas and communities, from official tables</p>
+    </div>
+    <nav class="toc" aria-label="Sections">
+      <a href="#map-section">Map</a><a href="#compare">Compare</a><a href="#rents">Rents</a><a href="#incomes">Incomes</a><a href="#stretched">Burden</a><a href="#need">Core need</a><a href="#building">Building</a><a href="#sources">Sources</a>
+    </nav>
+    <button id="theme" type="button" aria-label="Colour theme">Theme: system</button>
   </header>
-  <main class="wrap">
-   <nav aria-label="Country" class="countries">
-    <button aria-pressed="true" data-country="ca" type="button">
-     Canada
-     <span>
-      01
-     </span>
-    </button>
-    <button aria-pressed="false" data-country="us" type="button">
-     United States
-     <span>
-      02
-     </span>
-    </button>
-   </nav>
-   <p id="status" role="status">
-    Loading published observations…
-   </p>
-   <div hidden="" id="content">
-    <section class="intro">
-     <p class="eyebrow" id="scope">
-     </p>
+
+  <main>
+    <p id="status" class="wrap status" role="status">Loading official tables…</p>
+
+    <section class="lead wrap" aria-labelledby="lead-title" hidden>
+      <h1 id="lead-title"></h1>
+      <p class="deck" id="lead-deck"></p>
+      <div class="tiles" id="tiles"></div>
     </section>
-    <section aria-label="Explore published data" id="explore">
-     <div class="controls">
-      <label>
-       Measure
-       <select id="measure">
-       </select>
-      </label>
-      <label>
-       Place
-       <select id="place">
-       </select>
-      </label>
-      <label>
-       Year
-       <select id="year"></select>
-      </label>
-     </div>
-     <div aria-live="polite" class="readout">
-      <div>
-       <p class="eyebrow" id="placeLabel">
-       </p>
-       <h1 id="finding">
-       </h1>
-       <p id="definition">
-       </p>
+
+    <section id="map-section" class="band" aria-labelledby="map-title" hidden>
+      <div class="wrap">
+        <div class="section-head">
+          <p class="kicker">01 · Map</p>
+          <h2 id="map-title">Where it costs most, year by year</h2>
+          <p class="sub" id="map-sub"></p>
+        </div>
+        <div class="controls" role="group" aria-label="Map controls">
+          <label>Measure <select id="m-measure"></select></label>
+          <label id="m-cat-wrap">Type <select id="m-cat"></select></label>
+          <div class="seg" id="m-level" role="radiogroup" aria-label="Geography"></div>
+          <label id="m-pr-wrap" hidden>Province <select id="m-pr"></select></label>
+        </div>
+        <div class="map-grid">
+          <figure class="map-fig">
+            <div class="map-box" id="map" aria-label="Map"></div>
+            <div class="scrub" id="scrub">
+              <button type="button" id="play" aria-label="Play through years">▶</button>
+              <input type="range" id="year" aria-label="Year">
+              <output id="year-out"></output>
+            </div>
+            <label class="check" id="m-fixed-wrap"><input type="checkbox" id="m-fixed"> Same colour scale for every year</label>
+            <div class="legend" id="legend"></div>
+            <figcaption class="source" id="map-source"></figcaption>
+          </figure>
+          <aside class="rank" aria-labelledby="rank-title">
+            <h3 id="rank-title">Ranked</h3>
+            <input type="search" id="rank-q" placeholder="Filter places" aria-label="Filter ranked places">
+            <ol id="rank-list"></ol>
+            <p class="hint">Click a place on the map or in the list to add it to the comparison.</p>
+          </aside>
+        </div>
       </div>
-      <div class="latest">
-       <span id="value">
-       </span>
-       <span id="period">
-       </span>
-      </div>
-     </div>
-     <figure>
-      <div id="chart">
-      </div>
-      <figcaption id="chartNote">
-      </figcaption>
-     </figure>
-     <div class="figure-meta">
-      <p id="universe">
-      </p>
-      <p id="measureNotes">
-      </p>
-      <p id="geographyQuality">
-      </p>
-     </div>
-     <section class="observations">
+    </section>
+
+    <section id="compare" class="wrap" aria-labelledby="cmp-title" hidden>
       <div class="section-head">
-       <h2>
-        Published observations
-       </h2>
-       <button id="csv" type="button">
-        Download selection CSV ↓
-       </button>
+        <p class="kicker">02 · Compare</p>
+        <h2 id="cmp-title">Compare places</h2>
+        <p class="sub">Provinces, metro areas, agglomerations or communities, up to six. Colours follow the order you add them.</p>
       </div>
-      <p id="qualityNote">
-       Missing and withheld values stay missing. Quality flags are retained as published.
-      </p>
-      <div class="table-scroll">
-       <table id="observations">
-        <caption class="sr-only">
-         Observations for the selected measure and place
-        </caption>
-        <thead>
-         <tr>
-          <th scope="col">
-           Year
-          </th>
-          <th id="unitHeader" scope="col">
-           Value
-          </th>
-          <th scope="col">
-           Sampling interval
-          </th>
-          <th scope="col">
-           Quality / status
-          </th>
-          <th scope="col">
-           Source
-          </th>
-         </tr>
-        </thead>
-        <tbody>
-        </tbody>
-       </table>
+      <div class="picker">
+        <div class="chips" id="chips"></div>
+        <div class="search">
+          <input type="search" id="place-q" placeholder="Add a place: Halifax, Saskatoon, Whitehorse…" aria-label="Add a place" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="place-opts">
+          <ul id="place-opts" role="listbox" hidden></ul>
+        </div>
+        <div class="presets" id="presets"></div>
       </div>
-     </section>
-     <section class="observations" aria-labelledby="compareHeading">
-      <h2 id="compareHeading">Compare places</h2>
-      <p id="compareNote"></p>
-      <div class="table-scroll">
-       <table id="comparison">
-        <thead><tr><th scope="col">Place</th><th scope="col">Estimate</th><th scope="col">Sampling interval</th></tr></thead>
-        <tbody></tbody>
-       </table>
+      <div class="cmp-table-wrap"><table class="cmp-table" id="cmp-table"></table></div>
+      <div class="grid2">
+        <figure class="chart" id="c-rent"></figure>
+        <figure class="chart" id="c-vac"></figure>
+        <figure class="chart" id="c-slope"></figure>
+        <figure class="chart" id="c-income"></figure>
       </div>
-     </section>
     </section>
-    <section class="context">
-     <div>
-      <p class="eyebrow">
-       Read before comparing
-      </p>
-      <h2>
-       Coverage &amp; limits
-      </h2>
-      <div id="coverage">
+
+    <section id="rents" class="band" aria-labelledby="rents-title" hidden>
+      <div class="wrap">
+        <div class="section-head">
+          <p class="kicker">03 · Rents</p>
+          <h2 id="rents-title">Rents across metro areas, 1987–2025</h2>
+          <p class="sub">Each row is a metro area, each column a year. Hover a cell for the value; click a row to compare it.</p>
+        </div>
+        <div class="controls">
+          <div class="seg" id="h-mode" role="radiogroup" aria-label="Heat map value"></div>
+          <label>Bedrooms <select id="h-cat"></select></label>
+          <label>Sort <select id="h-sort"><option value="last">Latest value</option><option value="growth">Growth since 2015</option><option value="name">Name</option><option value="region">Region</option></select></label>
+        </div>
+        <figure class="chart wide" id="c-heat"></figure>
+        <figure class="chart wide" id="c-bump"></figure>
+        <figure class="chart wide" id="c-scatter"></figure>
       </div>
-      <p>
-       Canadian and US dollars are shown in their source units. No currency conversion or combined country ranking is applied. Missing years are not interpolated.
-      </p>
-      <p id="studyLink">
-      </p>
-     </div>
-     <div>
-      <p class="eyebrow">
-       Follow the evidence
-      </p>
-      <h2>
-       Sources &amp; data
-      </h2>
-      <ul id="sources">
+    </section>
+
+    <section id="incomes" class="wrap" aria-labelledby="inc-title" hidden>
+      <div class="section-head">
+        <p class="kicker">04 · Prices and incomes</p>
+        <h2 id="inc-title" class="finding"></h2>
+        <p class="sub">Rent prices (CPI rent index, same units over time) and median after-tax income in constant dollars, each set to 100 in the base year. Rent is deflated by all-items CPI so both lines are in real terms.</p>
+      </div>
+      <div class="controls">
+        <label>Base year <select id="i-base"></select></label>
+      </div>
+      <figure class="chart wide" id="c-multiples"></figure>
+      <figure class="chart wide" id="c-cpiheat"></figure>
+    </section>
+
+    <section id="stretched" class="band" aria-labelledby="st-title" hidden>
+      <div class="wrap">
+        <div class="section-head">
+          <p class="kicker">05 · Who is stretched</p>
+          <h2 id="st-title" class="finding"></h2>
+          <p class="sub">2021 Census: renter households spending 30% or more of before-tax income on shelter.</p>
+        </div>
+        <div class="controls">
+          <label>Place <select id="s-place"></select></label>
+        </div>
+        <div class="grid2">
+          <figure class="chart" id="c-income-bars"></figure>
+          <figure class="chart" id="c-hh-bars"></figure>
+        </div>
+        <figure class="chart wide" id="c-strip"></figure>
+      </div>
+    </section>
+
+    <section id="need" class="wrap" aria-labelledby="need-title" hidden>
+      <div class="section-head">
+        <p class="kicker">06 · Core housing need</p>
+        <h2 id="need-title" class="finding"></h2>
+        <p class="sub">Canadian Housing Survey, renters in the ten provinces. Dots are survey estimates with 95% intervals; nothing is drawn between survey years.</p>
+      </div>
+      <figure class="chart wide" id="c-need"></figure>
+      <div class="grid2">
+        <figure class="chart" id="c-dims"></figure>
+        <figure class="chart" id="c-size"></figure>
+      </div>
+    </section>
+
+    <section id="building" class="band" aria-labelledby="b-title" hidden>
+      <div class="wrap">
+        <div class="section-head">
+          <p class="kicker">07 · Building</p>
+          <h2 id="b-title" class="finding"></h2>
+          <p class="sub">CMHC housing starts, all tenures. Per 1,000 residents uses July 1 population.</p>
+        </div>
+        <figure class="chart wide" id="c-startsheat"></figure>
+        <div class="controls"><label>Province <select id="b-place"></select></label></div>
+        <figure class="chart wide" id="c-stack"></figure>
+      </div>
+    </section>
+
+    <section id="sources" class="wrap" aria-labelledby="src-title" hidden>
+      <div class="section-head">
+        <p class="kicker">08 · Sources and definitions</p>
+        <h2 id="src-title">Every number comes from a published table</h2>
+        <p class="sub">Measures describe different populations and periods. Rent is the surveyed rental stock, not what a household pays relative to income; core housing need is not the 30% burden rate. Nothing is interpolated between survey years, and suppressed cells stay empty.</p>
+      </div>
+      <div id="defs" class="defs"></div>
+      <h3>Tables</h3>
+      <div class="cmp-table-wrap"><table class="src-table" id="src-table"></table></div>
+      <h3>Downloads</h3>
+      <ul class="downloads">
+        <li><a href="data/observations.csv" download>observations.csv</a> every published and derived value, with status flags and source</li>
+        <li><a href="data/places.csv" download>places.csv</a> place ids, names, levels and provinces</li>
+        <li><a href="data/atlas.json" download>atlas.json</a> and <a href="data/local.json" download>local.json</a> the site's data</li>
       </ul>
-      <p class="downloads">
-       <a download="" href="downloads/canada.json">
-        Canada data ↓
-       </a>
-       <a download="" href="downloads/us.json">
-        US data ↓
-       </a>
-      </p>
-     </div>
     </section>
-   </div>
   </main>
-  <footer class="wrap">
-   <p>
-    Public-source observations. Canadian analysis is descriptive; the separate US study includes forecasts.
-   </p>
-   <a href="https://github.com/symonyeal/Renter-Cost-Burden">
-    Code, methods &amp; reproduction ↗
-   </a>
-   <p id="built">
-   </p>
+
+  <footer class="wrap foot">
+    <p>Statistics Canada and CMHC data, Open Government Licence – Canada. Boundaries: Statistics Canada 2021 cartographic boundary files. Code: <a href="https://github.com/symonyeal/Renter-Cost-Burden">github.com/symonyeal/Renter-Cost-Burden</a>.</p>
   </footer>
- </body>
+  <div id="tip" class="tip" role="tooltip" hidden></div>
+</body>
 </html>

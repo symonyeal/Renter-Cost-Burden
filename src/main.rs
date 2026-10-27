@@ -1,94 +1,108 @@
-//! Renter cost burden pipeline.
-//! Legend: r repository root; c configuration; ca Canadian exports; us US exports;
-//! p path; b bytes; h content hash; d delivered data; e process exit status.
-mod canada;
+//! Renter cost burden: Canadian housing atlas pipeline.
+//! Legend: r repository root; p path; t table; g registry; o observations; s source records;
+//! k reconciliation rows; d delivered JSON.
+mod atlas;
+mod census;
+mod geo;
 mod history;
-mod kernel;
-mod us;
+mod net;
+mod place;
+mod sources;
+mod statcan;
 
 use serde_json::{Value, json};
-use sha2::{Digest, Sha256};
 use std::{
     error::Error,
     fs,
     path::{Path, PathBuf},
-    process::Command,
 };
 
-type E = Box<dyn Error>;
+pub type E = Box<dyn Error>;
 
-fn read(p: impl AsRef<Path>) -> Result<Value, E> {
+pub fn read(p: impl AsRef<Path>) -> Result<Value, E> {
     Ok(serde_json::from_slice(&fs::read(p)?)?)
 }
 
-fn write(p: impl AsRef<Path>, d: &Value) -> Result<(), E> {
+/// Write JSON through a temporary file, so a failed run leaves the accepted artifact intact.
+pub fn write(p: impl AsRef<Path>, d: &Value) -> Result<(), E> {
     let p = p.as_ref();
     if let Some(d) = p.parent() {
         fs::create_dir_all(d)?;
     }
-    let b = serde_json::to_vec_pretty(d)?;
-    // A failed serialization must leave the accepted artifact intact.
     let t = p.with_extension("json.pending");
-    fs::write(&t, b)?;
+    fs::write(&t, serde_json::to_vec(d)?)?;
     fs::rename(t, p)?;
     Ok(())
 }
 
-fn build(r: &Path) -> Result<(), E> {
-    let c = read(r.join("config.json"))?;
-    let ca = canada::run(r, false)?;
-    let us = us::run(r, &c)?;
-    let d = json!({"schema": 1, "ca": ca, "us": us,
-        "notes": "Source reference years are not retrieval years. Countries have different populations and survey designs."});
-    write(r.join("data/processed/us.json"), &d["us"])?;
-    write(r.join("site/bundle.json"), &d)?;
-    fs::create_dir_all(r.join("site/downloads"))?;
-    for f in ["canada.json", "us.json"] {
-        fs::copy(
-            r.join("data/processed").join(f),
-            r.join("site/downloads").join(f),
-        )?;
+/// Read every official table from the cache (downloading what is missing) and write the
+/// processed places, observations and source records.
+fn fetch(r: &Path) -> Result<(), E> {
+    let mut g = place::Registry::default();
+    let mut o = Vec::new();
+    let mut s = Vec::new();
+    let open = |id: &str, s: &mut Vec<Value>| -> Result<statcan::Table, E> {
+        let t = statcan::Table::open(r, id)?;
+        s.push(t.source.clone());
+        Ok(t)
+    };
+    // Census first: its 2021 names and classifications take precedence in the registry.
+    o.extend(census::by_group(&mut open("98100252", &mut s)?, &mut g)?);
+    let (c, k) = census::communities(&mut open("98100255", &mut s)?, &mut g)?;
+    o.extend(c);
+    let mut checks = Vec::new();
+    for x in &k {
+        let y = o
+            .iter()
+            .find(|y| y.measure == "burden" && y.cat.is_empty() && y.place == x.place);
+        let (a, b) = (x.value, y.and_then(|y| y.value));
+        let n = o
+            .iter()
+            .find(|y| y.measure == "renter_households" && y.place == x.place)
+            .and_then(|y| y.value)
+            .unwrap_or(1.0);
+        // Same 25% sample, tabulated and rounded separately: the rates may differ by what
+        // ten households of rounding move (Yukon: 24.89% vs 24.95% of about 5,500 renters).
+        if let (Some(a), Some(b)) = (a, b)
+            && (a - b).abs() > 1000.0 / n
+        {
+            return Err(format!(
+                "98-10-0252 and 98-10-0255 disagree for {}: {b} vs {a}",
+                x.place
+            )
+            .into());
+        }
+        checks.push(json!({"place": x.place, "98100252": b, "98100255": a}));
     }
-    let mut h = serde_json::Map::new();
-    for f in [
-        "config.json",
-        "Cargo.toml",
-        "Cargo.lock",
-        "rust-toolchain.toml",
-        "src/main.rs",
-        "src/us.rs",
-        "src/canada.rs",
-        "src/kernel.rs",
-        "src/history.rs",
-        "site/index.html",
-        "site/app.js",
-        "site/style.css",
-        "data/processed/acs.csv",
-        "data/processed/cpi.csv",
-        "data/processed/manifest.json",
-        "data/processed/canada.json",
-        "data/processed/predictions.csv",
-        "site/bundle.json",
-    ] {
-        let b = fs::read(r.join(f))?;
-        h.insert(f.to_string(), json!(format!("{:x}", Sha256::digest(&b))));
-    }
+    o.extend(sources::rents(&mut open("34100133", &mut s)?, &mut g)?);
+    let mut v = [open("34100130", &mut s)?, open("34100131", &mut s)?];
+    let (vac, n) = sources::vacancy(&mut v, &mut g)?;
+    o.extend(vac);
+    o.extend(sources::cpi(&mut open("18100005", &mut s)?, &mut g)?);
+    o.extend(sources::income(&mut open("11100190", &mut s)?, &mut g)?);
+    o.extend(sources::population(&mut open("17100005", &mut s)?, &mut g)?);
+    o.extend(sources::population(&mut open("17100148", &mut s)?, &mut g)?);
+    o.extend(sources::starts(&mut open("34100126", &mut s)?, &mut g)?);
+    o.extend(sources::chs(&mut open("46100085", &mut s)?, &mut g)?);
+    o.extend(sources::chs(&mut open("46100086", &mut s)?, &mut g)?);
+    let (h, ho) = history::run(r, &mut g)?;
+    s.push(h);
+    o.extend(ho);
+    // Population is published for both tables' Canada row; keep the first (provincial table).
+    let mut seen = std::collections::BTreeSet::new();
+    o.retain(|x| x.measure != "population" || seen.insert((x.place.clone(), x.year)));
+    fs::create_dir_all(r.join("data/processed"))?;
+    place::save(r, &g, &mut o)?;
     write(
-        r.join("artifacts/rust-build.json"),
-        &json!({"schema":1,"sha256":h,
-        "command":"cargo run --release --locked -- build",
-        "runtime":"Rust; model fitting remains the registered Python implementation"}),
+        r.join("data/processed/sources.json"),
+        &json!({"tables": s, "reconciliation": {"burden_98100252_vs_98100255": checks,
+            "vacancy_metro_vs_agglomeration_table_conflicts": n}}),
     )?;
     println!(
-        "Built site/bundle.json: {} Canadian and {} US observations",
-        d["ca"]["observations"]
-            .as_array()
-            .ok_or("missing Canadian observations")?
-            .len(),
-        d["us"]["observations"]
-            .as_array()
-            .ok_or("missing US observations")?
-            .len()
+        "Wrote {} observations for {} places from {} sources",
+        o.len(),
+        g.m.len(),
+        s.len()
     );
     Ok(())
 }
@@ -97,32 +111,15 @@ fn main() -> Result<(), E> {
     let a: Vec<String> = std::env::args().skip(1).collect();
     let r = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     match a.first().map(String::as_str).unwrap_or("build") {
-        "kernel" => kernel::run(),
-        "build" => build(&r),
-        "fetch-ca" => {
-            canada::run(&r, true)?;
-            Ok(())
-        }
-        "verify-us" => us::verify(&r),
-        "refit-us" => {
-            for m in ["models", "comparison", "gap", "build_site"] {
-                let e = Command::new("python")
-                    .args(["-m", &format!("analysis.{m}")])
-                    .current_dir(&r)
-                    .status()?;
-                if !e.success() {
-                    return Err(format!("US stage {m} failed: {e}").into());
-                }
-            }
-            build(&r)
-        }
+        "build" => atlas::build(&r),
+        "fetch" => fetch(&r).and_then(|_| atlas::build(&r)),
+        "fetch-geo" => geo::run(&r).and_then(|_| atlas::build(&r)),
         "help" | "--help" | "-h" => {
             println!(
-                "renter-cost-burden [build | fetch-ca | verify-us | refit-us]\n\
-                build: offline Rust analysis and site export\n\
-                fetch-ca: explicitly download and process official Canadian sources\n\
-                verify-us: independently compare Rust calculations with committed ACS exports\n\
-                refit-us: rerun the registered Python study, then rebuild offline"
+                "renter-cost-burden [build | fetch | fetch-geo]\n\
+                build: offline; derived series and site data from data/processed\n\
+                fetch: read official tables (cached in data/raw, downloaded when missing), then build\n\
+                fetch-geo: retrieve 2021 boundaries from Statistics Canada, then build"
             );
             Ok(())
         }
