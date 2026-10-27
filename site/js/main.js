@@ -65,7 +65,7 @@ function lead() {
 const MAP_MEASURES = ['rent', 'rent_real', 'rent_change', 'vacancy', 'burden', 'burden_history', 'burden_subsidy', 'burden_income', 'burden_household', 'renter_share', 'subsidized_share', 'core_need', 'core_need_size', 'cpi', 'rent_relative', 'rent_inflation', 'income', 'population', 'starts_per_1000', 'apartment_share'];
 function mapControls() {
   const groups = d3.group(MAP_MEASURES.map(meas).filter(Boolean), m => m.group);
-  $('m-measure').innerHTML = [...groups].map(([g, ms]) => `<optgroup label="${esc(g)}">${ms.map(m => `<option value="${m.id}">${esc(m.title)}</option>`).join('')}</optgroup>`).join('');
+  $('m-measure').innerHTML = [...groups].map(([g, ms]) => `<optgroup label="${esc(g)}">${ms.map(m => `<option value="${m.id}">${esc(m.title)}${/[0-9]{4}$/.test(m.title) ? '' : ` · ${m.years[0]}–${m.years.at(-1)}`}</option>`).join('')}</optgroup>`).join('');
   $('m-pr').innerHTML = Object.entries(PR).map(([k, v]) => `<option value="${k}">${esc(v[0])}</option>`).join('');
   $('m-measure').onchange = e => { s.m = e.target.value; s.c = null; drawMap(); };
   $('m-cat').onchange = e => { s.c = e.target.value; drawMap(); };
