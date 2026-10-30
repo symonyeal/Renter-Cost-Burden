@@ -9,14 +9,13 @@ use std::{collections::BTreeMap, fs, path::Path};
 const SVC: &str =
     "https://geo.statcan.gc.ca/geo_wa/rest/services/2021/Cartographic_boundary_files/MapServer";
 
-pub struct Layer {
-    pub key: &'static str,
+struct Layer {
+    key: &'static str,
     id: u8,
     fields: &'static str,
     name: &'static str,
     chunk: usize,
     t: u32,
-    q: f64,
     m: f64,
 }
 
@@ -24,7 +23,7 @@ pub struct Layer {
 // metro areas and communities down to city scale. Neighbours are generalized separately,
 // so a shared edge can differ by up to `t`; that stays under a pixel at each map's zoom
 // limit and is hidden by the boundary stroke.
-pub const LAYERS: [Layer; 4] = [
+const LAYERS: [Layer; 4] = [
     Layer {
         key: "pr",
         id: 0,
@@ -32,7 +31,6 @@ pub const LAYERS: [Layer; 4] = [
         name: "PRENAME",
         chunk: 1,
         t: 1000,
-        q: 250.0,
         m: 30e6,
     },
     Layer {
@@ -42,7 +40,6 @@ pub const LAYERS: [Layer; 4] = [
         name: "CDNAME",
         chunk: 8,
         t: 800,
-        q: 200.0,
         m: 30e6,
     },
     Layer {
@@ -52,7 +49,6 @@ pub const LAYERS: [Layer; 4] = [
         name: "CMANAME",
         chunk: 20,
         t: 100,
-        q: 25.0,
         m: 0.2e6,
     },
     Layer {
@@ -62,7 +58,6 @@ pub const LAYERS: [Layer; 4] = [
         name: "CSDNAME",
         chunk: 40,
         t: 120,
-        q: 30.0,
         m: 0.2e6,
     },
 ];
@@ -228,6 +223,7 @@ pub fn run(root: &Path) -> Result<(), E> {
     // Label points of every feature in km, for dots and zoom targets without loading a layer.
     let mut pts = BTreeMap::new();
     for l in &LAYERS {
+        let q = f64::from(l.t) / 4.0;
         let fs_ = fetch(root, l)?;
         let mut by_pr: BTreeMap<String, Vec<Value>> = BTreeMap::new();
         let (mut kept, mut dropped) = (0usize, 0usize);
@@ -251,7 +247,7 @@ pub fn run(root: &Path) -> Result<(), E> {
             dropped += n - g.len();
             let d: Vec<Vec<i64>> = g
                 .iter()
-                .map(|r| encode(r, l.q))
+                .map(|r| encode(r, q))
                 .filter(|d| d.len() >= 6)
                 .collect();
             let pr = a["PRUID"].as_str().unwrap_or_default().to_owned();
@@ -260,7 +256,7 @@ pub fn run(root: &Path) -> Result<(), E> {
                 json!([(c[0] / 100.0).round() / 10.0, (c[1] / 100.0).round() / 10.0]),
             );
             let mut v = json!({"id": id(l, a), "n": a[l.name], "pr": pr,
-                "c": [(c[0] / l.q).round() as i64, (c[1] / l.q).round() as i64], "r": d});
+                "c": [(c[0] / q).round() as i64, (c[1] / q).round() as i64], "r": d});
             if let Some(t) = a.get("CMATYPE").or(a.get("CSDTYPE")) {
                 v["t"] = t.clone();
             }
@@ -281,7 +277,7 @@ pub fn run(root: &Path) -> Result<(), E> {
             };
             write(
                 out.join(format!("{name}.json")),
-                &json!({"layer": l.key, "q": l.q, "tolerance_m": l.t, "min_ring_m2": l.m,
+                &json!({"layer": l.key, "q": q, "tolerance_m": l.t, "min_ring_m2": l.m,
                     "source": format!("{SVC}/{}", l.id), "features": v}),
             )?;
         }

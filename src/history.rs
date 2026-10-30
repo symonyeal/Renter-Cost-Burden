@@ -5,15 +5,13 @@
 //! Kept apart from the detailed 2021 counts: the release is earlier and published to one
 //! decimal, so its 2021 values can differ from a count reconstruction. Never spliced.
 use crate::{
-    E, net,
+    E, cache,
     place::{Obs, PROVINCES, Registry},
 };
-use chrono::Utc;
 use serde_json::{Value, json};
-use sha2::{Digest, Sha256};
 use std::{collections::BTreeSet, fs, path::Path};
 
-pub const ID: &str = "census-comparison-2016-2021";
+const ID: &str = "census-comparison-2016-2021";
 const URL: &str = "https://www150.statcan.gc.ca/n1/daily-quotidien/220921/t004b-eng.csv";
 
 /// (geography, is metro section, 2016 value, 2021 value) rows of the renter columns.
@@ -70,19 +68,8 @@ fn parse(b: &[u8]) -> Result<Vec<(String, bool, f64, f64)>, E> {
 /// Observations keyed to registered places. Metros match the 2021 Census table by name and
 /// must all resolve; run after the Census adapters.
 pub fn run(root: &Path, r: &mut Registry) -> Result<(Value, Vec<Obs>), E> {
-    let dir = root.join("data/raw/canada");
-    let p = dir.join(format!("{ID}.csv"));
-    let stamp = dir.join(format!("{ID}.retrieval.json"));
-    if !p.exists() {
-        let b = net::bytes(URL, 120)?;
-        parse(&b)?;
-        fs::create_dir_all(&dir)?;
-        fs::write(&p, &b)?;
-        crate::write(
-            &stamp,
-            &json!({"retrieved": Utc::now().to_rfc3339(), "basis": "download completed"}),
-        )?;
-    }
+    let p = root.join("data/raw/canada").join(format!("{ID}.csv"));
+    let provenance = cache::source(&p, URL, 120, |b| parse(b).map(|_| ()))?;
     let b = fs::read(&p)?;
     let mut o = Vec::new();
     for (g, metro, a, b2) in parse(&b)? {
@@ -93,24 +80,30 @@ pub fn run(root: &Path, r: &mut Registry) -> Result<(Value, Vec<Obs>), E> {
                 .iter()
                 .find(|x| x.1 == g)
                 .ok_or_else(|| format!("unknown province {g}"))?
-                .0;
+                .0
+                .as_str();
             format!("pr-{pr}")
         } else {
             r.find(&g, &["metro", "agglomeration"])
                 .ok_or_else(|| format!("comparison metro {g} matches no 2021 Census place"))?
         };
         for (y, v) in [(2016, a), (2021, b2)] {
-            let mut x = Obs::new("burden_history", "", &k, y, Some(v), ID);
-            x.status = "published to one decimal".into();
-            x.vintage = "2021".into();
-            o.push(x);
+            o.push(Obs::published(
+                "burden_history",
+                "",
+                &(k.clone(), "2021".into()),
+                y,
+                (Some(v), "published to one decimal".into()),
+                ID,
+            ));
         }
     }
-    let t = crate::read(&stamp)?;
-    let source = json!({"id": ID, "title": "Percent of households spending 30% or more of income on shelter cost by tenure, 2016 and 2021 (The Daily, table 4)",
-        "url": "https://www150.statcan.gc.ca/n1/daily-quotidien/220921/t004b-eng.htm",
-        "download": URL, "retrieved": t["retrieved"], "retrieved_basis": t["basis"],
-        "sha256": format!("{:x}", Sha256::digest(&b)), "bytes": b.len()});
+    let mut source = json!({"id": ID, "title": "Percent of households spending 30% or more of income on shelter cost by tenure, 2016 and 2021 (The Daily, table 4)",
+        "url": "https://www150.statcan.gc.ca/n1/daily-quotidien/220921/t004b-eng.htm"});
+    source
+        .as_object_mut()
+        .unwrap()
+        .extend(provenance.as_object().unwrap().clone());
     Ok((source, o))
 }
 

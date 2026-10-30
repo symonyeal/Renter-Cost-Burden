@@ -1,13 +1,8 @@
 /* Shared data access, formatting, colour and tooltip helpers.
    Legend: A atlas.json; L local.json (divisions, communities); P place map id -> {id,name,level,pr,reg};
    m measure id; c category; k place id; r row [year, value, lower, upper, status]; y year; v value. */
-export const PR = {
-  '10': ['Newfoundland and Labrador', 'N.L.'], '11': ['Prince Edward Island', 'P.E.I.'], '12': ['Nova Scotia', 'N.S.'],
-  '13': ['New Brunswick', 'N.B.'], '24': ['Quebec', 'Que.'], '35': ['Ontario', 'Ont.'], '46': ['Manitoba', 'Man.'],
-  '47': ['Saskatchewan', 'Sask.'], '48': ['Alberta', 'Alta.'], '59': ['British Columbia', 'B.C.'], '60': ['Yukon', 'Y.T.'],
-  '61': ['Northwest Territories', 'N.W.T.'], '62': ['Nunavut', 'Nvt.']
-};
-export const REGION_ORDER = ['bc', 'pra', 'nor', 'on', 'qc', 'atl'];
+export let PR;
+export let REGION_ORDER;
 export const LEVEL_NAME = {
   country: 'Country', province: 'Province', territory: 'Territory', metro: 'Metro area', agglomeration: 'Agglomeration',
   metro_part: 'Metro area part', centre: 'Rental centre', aggregate: 'Group', division: 'Census division', community: 'Community'
@@ -20,8 +15,10 @@ export const STATUS = {
 
 export const D = { A: null, L: null, P: new Map() };
 
-export function load(A, L) {
+export function load(A, L, provinces) {
   D.A = A; D.L = L;
+  PR = Object.fromEntries(provinces.map(([id, name, short]) => [id, [name, short]]));
+  REGION_ORDER = A.regions.map(r => r.id);
   for (const [id, name, level, pr, reg] of [...A.places, ...(L ? L.places : [])]) D.P.set(id, { id, name, level, pr, reg });
 }
 export const meas = m => D.A.measures.find(x => x.id === m);
@@ -29,11 +26,20 @@ export function rows(m, c, k) {
   const src = (k.startsWith('csd-') || k.startsWith('cd-')) ? D.L?.series : D.A.series;
   return src?.[m]?.[c ?? '']?.[k] || [];
 }
-export function at(m, c, k, y) { const r = rows(m, c, k).find(r => r[0] === y); return r ? r[1] : null; }
+export function at(m, c, k, y) { return row(m, c, k, y)?.[1] ?? null; }
 export function row(m, c, k, y) { return rows(m, c, k).find(r => r[0] === y) || null; }
 export function latest(m, c, k) {
   const rs = rows(m, c, k).filter(r => r[1] != null);
   return rs.length ? rs[rs.length - 1] : null;
+}
+/** Chart-ready series keep place labels and colour policy out of section renderers. */
+export function series(m, c, keys, color = regionVar) {
+  return keys.map((k, i) => ({ k, name: placeName(k), color: color(k, i), rows: rows(m, c, k) }));
+}
+/** Index published values to a chosen base year; never fill a missing observation. */
+export function rebase(rs, year) {
+  const b = rs.find(r => r[0] === year)?.[1];
+  return b ? rs.filter(r => r[0] >= year && r[1] != null).map(r => [r[0], 100 * r[1] / b]) : [];
 }
 /** Every place with a value for (m, c), from the atlas and (for local levels) local.json. */
 export function placesWith(m, c) {
@@ -67,9 +73,7 @@ export function fmt(m, v, short = false) {
   if (f === 'dollars') return '$' + nf0.format(v);
   if (f === 'pct') return nf1.format(v) + '%';
   if (f === 'change') return (v > 0 ? '+' : v < 0 ? '−' : '') + nf1.format(Math.abs(v)) + '%';
-  if (f === 'index') return nf1.format(v);
   if (f === 'count') return short && v >= 1e6 ? nf1.format(v / 1e6) + 'M' : short && v >= 1e4 ? nf0.format(v / 1e3) + 'k' : nf0.format(v);
-  if (f === 'num1') return nf1.format(v);
   return nf1.format(v);
 }
 export const pct = (v, d = 1) => v == null ? '–' : (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v).toFixed(d) + '%';

@@ -2,7 +2,8 @@
    reprojection: x east, y north in km; y is negated for SVG.
    Legend: G geometry cache by layer file; f feature {id, of, n, pr, r, c}; q quantum (m); s state;
    T thresholds; C colours; lv map level; k place id; y year; z zoom transform. */
-import { D, meas, rows, at, row, placesWith, cats, defCat, catLabel, placeName, fmt, esc, tip, untip, spark, SEQ, DIV, statusText, PR, LEVEL_NAME } from './util.js';
+import { D, meas, rows, at, row, placesWith, catLabel, placeName, fmt, esc, tip, untip, spark, statusText, LEVEL_NAME } from './util.js';
+import { scaleFor, colorOf } from './colors.js';
 
 const G = new Map();
 let POINTS = null;
@@ -53,35 +54,6 @@ export function levelsFor(m, c) {
 }
 export const LEVEL_LABEL = { province: 'Provinces', metro: 'Metro areas', division: 'Divisions', community: 'Communities' };
 
-/* Colour scale for a measure at a level, fixed across years so the time-lapse compares like with like. */
-const CHANGE_T = [-3, -1, 1, 3, 6, 10];
-const CHANGE_C = [DIV[0], DIV[1], DIV[2], 'var(--seq-1)', 'var(--seq-3)', 'var(--seq-4)', 'var(--seq-6)'];
-export function scaleFor(m, c, keys, year = null) {
-  const me = meas(m);
-  if (me.format === 'change') return { T: CHANGE_T, C: CHANGE_C, diverging: true };
-  const vs = [];
-  for (const k of keys) for (const r of rows(m, c, k)) if (r[1] != null && (year == null || r[0] === year)) vs.push(r[1]);
-  vs.sort(d3.ascending);
-  const T = [];
-  for (let i = 1; i < 7; i++) {
-    const v = d3.quantileSorted(vs, i / 7);
-    const step = v >= 1000 ? 50 : v >= 100 ? 5 : v >= 10 ? 1 : 0.1;
-    const t = Math.round(v / step) * step;
-    if (!T.length || t > T[T.length - 1]) T.push(+t.toFixed(1));
-  }
-  return { T, C: SEQ.slice(7 - T.length - 1), diverging: false };
-}
-export const colorOf = (S, v) => v == null ? 'var(--none)' : S.C[d3.bisectRight(S.T, v)];
-
-export function legend(el, m, S) {
-  const n = S.C.length, w = Math.min(560, el.getBoundingClientRect().width || 560), bw = (w - 84) / n;
-  const lab = t => fmt(m, t, true);
-  el.innerHTML = `<svg width="${w}" height="34" role="img" aria-label="Colour key">${S.C.map((c, i) =>
-    `<rect x="${i * bw}" y="2" width="${bw - 2}" height="12" fill="${c}"/>`).join('')}
-    ${S.T.map((t, i) => `<text x="${(i + 1) * bw - 1}" y="28" text-anchor="middle" fill="var(--ink-2)" font-size="11">${esc(lab(t))}</text>`).join('')}
-    <rect x="${n * bw + 14}" y="2" width="14" height="12" fill="var(--none)"/><text x="${n * bw + 32}" y="12" fill="var(--ink-2)" font-size="11">No data</text></svg>`;
-}
-
 export class AtlasMap {
   constructor(el, onPick) {
     this.el = el; this.onPick = onPick; this.sel = new Set();
@@ -122,7 +94,6 @@ export class AtlasMap {
     if (this.vbKey !== file) { this.svg.attr('viewBox', vb.join(' ')); this.vbKey = file; this.svg.call(this.zoom.transform, d3.zoomIdentity); }
     this.svg.attr('aria-label', `${me.title}, ${LEVEL_LABEL[lv]}, ${y}`);
     const val = k => at(m, c, k, y);
-    const self = this;
     const hover = function (e, f) {
       const k = f.key, r = row(m, c, k, y), rs = rows(m, c, k);
       const extra = lv === 'community' ? renters(k) : '';
@@ -138,7 +109,7 @@ export class AtlasMap {
       .attr('class', f => 'feat' + (this.sel.has(f.key) ? ' sel' : ''))
       .attr('d', f => f.d).attr('fill', f => colorOf(S, val(f.key)))
       .on('pointermove', hover).on('pointerleave', untip)
-      .on('click', (e, f) => self.onPick(f.key));
+      .on('click', (e, f) => this.onPick(f.key));
     this.lines.selectAll('path').data(lv === 'province' || lv === 'community' ? [] : prov.features, f => f.id).join('path').attr('class', 'prov-line').attr('d', f => f.d);
     // Metro level: a dot per area so small areas stay visible at national scale; CMHC centres coded as
     // communities have no metro polygon and appear as dots only.
@@ -154,7 +125,7 @@ export class AtlasMap {
       .attr('class', d => 'dot' + (this.sel.has(d.key) ? ' sel' : ''))
       .attr('cx', d => d.cx).attr('cy', d => d.cy).attr('r', d => d.rr / Math.sqrt(this.k)).attr('stroke-width', 1 / this.k)
       .attr('fill', d => colorOf(S, val(d.key)))
-      .on('pointermove', hover).on('pointerleave', untip).on('click', (e, d) => self.onPick(d.key));
+      .on('pointermove', hover).on('pointerleave', untip).on('click', (e, d) => this.onPick(d.key));
     const n = keys.filter(k => val(k) != null).length;
     this.note.attr('hidden', n ? true : null).text(n ? '' : `No ${me.short.toLowerCase()} published for ${LEVEL_LABEL[lv].toLowerCase()} in ${y}.`);
     return { S, keys: reliable };

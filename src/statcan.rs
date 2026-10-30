@@ -1,13 +1,11 @@
 //! Statistics Canada full-table CSV downloads: cache, provenance and row access.
 //! Legend: t table id (8 digits); z ZIP archive; h header index; r CSV record; s status flag;
 //! q geography quality attributes from the metadata file, keyed by DGUID.
-use crate::{E, net};
-use chrono::{DateTime, Utc};
+use crate::{E, cache};
 use serde_json::{Value, json};
-use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, HashMap},
-    fs::{self, File},
+    fs::File,
     io::{Cursor, Read},
     path::Path,
 };
@@ -21,7 +19,7 @@ pub struct Table {
 
 pub struct Row<'a> {
     h: &'a HashMap<String, usize>,
-    pub r: &'a csv::StringRecord,
+    r: &'a csv::StringRecord,
 }
 
 impl Row<'_> {
@@ -106,41 +104,23 @@ impl Table {
     /// Open the cached ZIP for `t`, downloading it first when absent.
     pub fn open(root: &Path, t: &str) -> Result<Table, E> {
         let dir = root.join("data/raw/canada");
-        fs::create_dir_all(&dir)?;
         let p = dir.join(format!("{t}-eng.zip"));
         let url = format!("https://www150.statcan.gc.ca/n1/tbl/csv/{t}-eng.zip");
-        let stamp = dir.join(format!("{t}.retrieval.json"));
-        if !p.exists() {
-            eprintln!("download {url}");
-            let b = net::bytes(&url, 600)?;
-            // A truncated download never becomes a seemingly complete cache entry.
-            zip::ZipArchive::new(Cursor::new(&b))?;
-            fs::write(&p, &b)?;
-            crate::write(
-                &stamp,
-                &json!({"retrieved": Utc::now().to_rfc3339(), "basis": "download completed"}),
-            )?;
-        }
-        if !stamp.exists() {
-            let d: DateTime<Utc> = fs::metadata(&p)?.modified()?.into();
-            crate::write(
-                &stamp,
-                &json!({"retrieved": d.to_rfc3339(), "basis": "cache file modification time"}),
-            )?;
-        }
-        let time = crate::read(&stamp)?;
-        let mut f = File::open(&p)?;
-        let mut h = Sha256::new();
-        std::io::copy(&mut f, &mut h)?;
+        let provenance = cache::source(&p, &url, 600, |b| {
+            zip::ZipArchive::new(Cursor::new(b))?;
+            Ok(())
+        })?;
         let mut z = zip::ZipArchive::new(File::open(&p)?)?;
         let mut m = Vec::new();
         z.by_name(&format!("{t}_MetaData.csv"))?
             .read_to_end(&mut m)?;
         let (title, quality) = metadata(&m)?;
-        let source = json!({"id": t, "title": title.trim_start_matches('\u{feff}'),
-            "url": format!("https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid={t}01"),
-            "download": url, "retrieved": time["retrieved"], "retrieved_basis": time["basis"],
-            "sha256": format!("{:x}", h.finalize()), "bytes": fs::metadata(&p)?.len()});
+        let mut source = json!({"id": t, "title": title.trim_start_matches('\u{feff}'),
+            "url": format!("https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid={t}01")});
+        source
+            .as_object_mut()
+            .unwrap()
+            .extend(provenance.as_object().unwrap().clone());
         Ok(Table {
             id: t.to_owned(),
             source,

@@ -10,7 +10,7 @@ Read README.md and docs/METHODS.md before changing the pipeline or the site.
   never interpolate between Census or Housing Survey years, never fill a suppressed cell.
 - Places join on Statistics Canada codes without the Census year (`place.rs`); names join only where
   a source has no codes, and then must match exactly once.
-- Headline numbers on the page come from `facts` in `atlas.json`, computed in `src/atlas.rs`; chart
+- Headline numbers on the page come from `facts` in `atlas.json`, computed in `src/compute.rs`; chart
   titles state findings computed from the data shown. Never type a figure into the page or README
   without checking it against the built data.
 - Colours: region hues and sequential/diverging ramps are tokens in `site/style.css`; marks use
