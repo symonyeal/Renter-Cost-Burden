@@ -2,6 +2,7 @@
    Legend: el container; W width; H height; M margins; x/y scales; s series {k, name, color, rows}; r row
    [year, value, lower, upper, status]; m measure (formatting); h hover handler; dash dashed for gaps. */
 import { fmt, esc, tip, untip, width } from './util.js';
+import { scaleFor, colorOf, legend } from './colors.js';
 
 const M = { t: 12, r: 120, b: 28, l: 52 };
 function svg(el, W, H, label) {
@@ -92,6 +93,15 @@ export function heat(el, rowsData, years, colorOf, m, { onRow, cellH = 14, label
       .on('pointerleave', untip).on('click', () => onRow?.(d.k));
   });
   return sv;
+}
+
+/* A heat chart owns its scrolling surface, classification and matching legend. */
+export function heatPanel(el, data, years, m, c, options = {}) {
+  const S = scaleFor(m, c, data.map(d => d.k));
+  const wrap = document.createElement('div'); wrap.className = 'scroll-x'; el.append(wrap);
+  heat(wrap, data, years, v => colorOf(S, v), m, options);
+  const key = document.createElement('div'); key.className = 'legend'; el.append(key);
+  legend(key, m, S);
 }
 
 /* Bump chart of ranks. Highlighted series coloured; others recessive. */
@@ -189,9 +199,9 @@ export function hbars(el, items, m, { color = 'var(--accent)', label = '', ref =
 export function vbars(el, items, m, { color = 'var(--accent)', H = 260, label = '', ref = null, refLabel = '' } = {}) {
   const W = width(el), M_ = { t: 18, r: 8, b: 44, l: 44 };
   const x = d3.scaleBand().domain(items.map(d => d.name)).range([M_.l, W - M_.r]).padding(0.18);
-  const y = d3.scaleLinear().domain([0, Math.max(100 * (m === 'pct100' ? 1 : 0), d3.max(items, d => d.v) || 1)]).nice().range([H - M_.b, M_.t]);
+  const y = d3.scaleLinear().domain([0, d3.max(items, d => d.v) || 1]).nice().range([H - M_.b, M_.t]);
   const sv = svg(el, W, H, label);
-  yAxis(sv, y, W, m, { ...M_, r: M_.r }, 4);
+  yAxis(sv, y, W, m, M_, 4);
   sv.append('g').attr('class', 'axis').attr('transform', `translate(0,${H - M_.b})`).call(d3.axisBottom(x).tickSizeOuter(0))
     .selectAll('text').attr('transform', W < 600 ? 'rotate(-35)' : null).attr('text-anchor', W < 600 ? 'end' : 'middle');
   sv.selectAll('rect.b').data(items).join('rect').attr('class', 'b').attr('x', d => x(d.name)).attr('width', x.bandwidth())
@@ -270,7 +280,6 @@ export function stacked(el, layers, m, { H = 300, label = '' } = {}) {
   yAxis(sv, y, W, m, M_); xAxisYears(sv, x, H, M_, W);
   const area = d3.area().x(d => x(d.data.year)).y0(d => y(d[0])).y1(d => y(d[1]));
   sv.append('g').selectAll('path').data(st).join('path').attr('d', area).attr('fill', (d, i) => layers[i].color).attr('stroke', 'var(--surface)').attr('stroke-width', 1);
-  const lastY = years.at(-1);
   const ends = dodge(st.map((s, i) => { const d = s.at(-1); return { name: layers[i].name, y: y((d[0] + d[1]) / 2), v: d[1] - d[0], c: layers[i].color }; }), 14, M_.t, H - M_.b);
   sv.append('g').selectAll('text').data(ends).join('text').attr('class', 'lbl').attr('x', W - M_.r + 8).attr('y', d => d.y + 4).text(d => `${d.name} ${fmt(m, d.v, true)}`);
   const cross = sv.append('line').attr('y1', M_.t).attr('y2', H - M_.b).attr('stroke', 'var(--ink-2)').attr('opacity', 0);
@@ -281,7 +290,6 @@ export function stacked(el, layers, m, { H = 300, label = '' } = {}) {
       cross.attr('x1', x(yr)).attr('x2', x(yr)).attr('opacity', 0.6);
       tip(e, `<b>${yr}</b>` + [...layers].reverse().map(l => `<div><span style="color:${l.color}">■</span> ${esc(l.name)} <strong>${esc(fmt(m, row[l.name]))}</strong></div>`).join(''));
     }).on('pointerleave', () => { cross.attr('opacity', 0); untip(); });
-  void lastY;
   return sv;
 }
 

@@ -1,8 +1,9 @@
 /* Page wiring: state in the URL, map, comparison and the section charts.
    Legend: s state; A/L data files; k place id; ks place ids; m measure; c category; y year; F facts;
    $ element by id; sel compare selection (ordered, colour = slot). */
-import { D, load, meas, rows, at, row, latest, placesWith, cats, defCat, catLabel, placeName, regionVar, slotVar, fmt, pct, esc, spark, frame, empty, tip, untip, PR, REGION_ORDER, LEVEL_NAME, SEQ, DIV } from './util.js';
-import { AtlasMap, levelsFor, LEVEL_LABEL, legend, colorOf, scaleFor } from './map.js';
+import { D, load, meas, rows, at, latest, series, rebase, placesWith, cats, defCat, catLabel, placeName, regionVar, slotVar, fmt, pct, esc, spark, frame, empty, PR, REGION_ORDER, LEVEL_NAME } from './util.js';
+import { AtlasMap, levelsFor, LEVEL_LABEL } from './map.js';
+import { legend, colorOf } from './colors.js';
 import * as C from './charts.js';
 
 const $ = id => document.getElementById(id);
@@ -178,7 +179,7 @@ function search() {
   $('presets').querySelectorAll('button').forEach(b => b.onclick = () => { s.sel = PRESETS[+b.dataset.i][1].filter(k => D.P.has(k)); map.select(s.sel); compare(); writeUrl(); });
 }
 
-function cell(m, c, k, { change = 0, ago = 0 } = {}) {
+function cell(m, c, k, { change = 0 } = {}) {
   const l = latest(m, c, k);
   if (!l) return { html: '–', v: null };
   if (change) {
@@ -187,7 +188,6 @@ function cell(m, c, k, { change = 0, ago = 0 } = {}) {
     const v = 100 * (l[1] / a - 1);
     return { html: `${pct(v, 0)}<small>${l[0] - change}–${l[0]}</small>`, v };
   }
-  void ago;
   return { html: `${esc(fmt(m, l[1]))}<small>${l[0]}${l[4] ? ' · ' + esc(l[4]) : ''}</small>`, v: l[1] };
 }
 function compare() {
@@ -215,7 +215,7 @@ function compare() {
 
   // Rent over time
   const el = $('c-rent'), me = meas(s.rm);
-  const ser = ks.map(k => ({ k, name: placeName(k), color: color.get(k), rows: rows(s.rm, s.rc, k) })).filter(x => x.rows.length);
+  const ser = series(s.rm, s.rc, ks, k => color.get(k)).filter(x => x.rows.length);
   const plot = frame(el, `${catLabel('rent', s.rc)} rent, ${s.rm === 'rent_real' ? `in ${me.years.at(-1)} dollars` : 'nominal dollars'}`, `CMHC October survey, purpose-built rentals. ${s.rm === 'rent_real' ? 'Deflated by provincial all-items CPI.' : ''}`, 'Source: Statistics Canada 34-10-0133' + (s.rm === 'rent_real' ? ', 18-10-0005' : ''));
   const tabs = document.createElement('div'); tabs.className = 'controls tabs';
   tabs.innerHTML = `<div class="seg" role="radiogroup" aria-label="Dollars">${[['rent_real', 'Inflation-adjusted'], ['rent', 'Nominal']].map(([v, n]) => `<button type="button" role="radio" aria-checked="${v === s.rm}" data-v="${v}">${n}</button>`).join('')}</div>
@@ -229,7 +229,7 @@ function compare() {
 
   // Vacancy
   const ev = $('c-vac');
-  const vs = ks.map(k => ({ k, name: placeName(k), color: color.get(k), rows: rows('vacancy', '', k) })).filter(x => x.rows.length);
+  const vs = series('vacancy', '', ks, k => color.get(k)).filter(x => x.rows.length);
   const pv = frame(ev, 'Rental vacancy rate', 'Share of purpose-built units vacant and available in October, all bedroom sizes.', 'Source: Statistics Canada 34-10-0130, 34-10-0131');
   if (!C.lines(pv, vs, 'vacancy', { zero: true })) empty(ev, 'No vacancy series for the selected places (published for metro areas and agglomerations of 50,000+).');
 
@@ -241,9 +241,9 @@ function compare() {
 
   // Population indexed
   const ep = $('c-income');
-  const idx = ks.map(k => {
-    const rs = rows('population', '', k), b = rs.find(r => r[0] === 2001)?.[1];
-    return { k, name: placeName(k), color: color.get(k), rows: b ? rs.filter(r => r[0] >= 2001).map(r => [r[0], 100 * r[1] / b]) : [] };
+  const idx = series('population', '', ks, k => color.get(k)).map(d => {
+    const b = d.rows.find(r => r[0] === 2001)?.[1];
+    return { ...d, rows: b ? d.rows.filter(r => r[0] >= 2001).map(r => [r[0], 100 * r[1] / b]) : [] };
   }).filter(x => x.rows.length);
   const pp = frame(ep, 'Population growth since 2001', 'July 1 population, 2001 = 100. Metro areas on 2021 boundaries.', 'Source: Statistics Canada 17-10-0005, 17-10-0148');
   if (!C.lines(pp, idx, 'rent_relative', { refY: 100 })) empty(ep, 'No population series for the selected places.');
@@ -259,7 +259,6 @@ function rentsSection() {
   $('h-sort').value = s.hs; $('h-sort').onchange = e => { s.hs = e.target.value; rentsSection(); writeUrl(); };
   const m = s.hm, c = s.hc;
   const ys = meas('rent').years;
-  const S = scaleFor(m, c, metros.map(p => p.id));
   const growth = k => { const a = at('rent_real', c, k, 2015), b = latest('rent_real', c, k); return a && b ? b[1] / a - 1 : -Infinity; };
   const sorter = { last: (a, b) => (latest(m, c, b.id)?.[1] ?? -1e9) - (latest(m, c, a.id)?.[1] ?? -1e9), growth: (a, b) => growth(b.id) - growth(a.id), name: (a, b) => a.name.localeCompare(b.name), region: (a, b) => REGION_ORDER.indexOf(a.reg) - REGION_ORDER.indexOf(b.reg) || a.name.localeCompare(b.name) }[s.hs];
   const rd = metros.sort(sorter).map(p => ({ k: p.id, name: placeName(p.id), color: regionVar(p.id), rows: rows(m, c, p.id), extra: y => { const n = at('rent', c, p.id, y); return n == null ? '' : `Nominal ${fmt('rent', n)}`; } }));
@@ -269,10 +268,8 @@ function rentsSection() {
   const el = $('c-heat');
   const title = m === 'rent_change' ? `In ${lastY}, ${ups} of ${withC.length} metro areas saw ${catLabel('rent', c).toLowerCase()} rents rise more than 5%` : `${catLabel('rent', c)} rent by metro area and year`;
   const p = frame(el, title, `${meas(m).title}, ${catLabel('rent', c).toLowerCase()} units. Blank cells: not published. Left bar: region.`, `Source: ${meas(m).source}`);
-  const wrap = document.createElement('div'); wrap.className = 'scroll-x'; p.append(wrap);
   const y0 = d3.min(rd, d => d.rows.find(r => r[1] != null)?.[0]) ?? ys[0];
-  C.heat(wrap, rd, d3.range(y0, lastY + 1), v => colorOf(S, v), m, { onRow: pick, label: title });
-  const lg = document.createElement('div'); lg.className = 'legend'; p.append(lg); legend(lg, m, S);
+  C.heatPanel(p, rd, d3.range(y0, lastY + 1), m, c, { onRow: pick, label: title });
 
   // Bump chart: rank by nominal 2BR rent since 2000
   const yrs = d3.range(2000, lastY + 1);
@@ -313,10 +310,9 @@ function incomes() {
   const yrs = d3.range(1976, 2016);
   $('i-base').innerHTML = yrs.map(y => `<option ${y === base ? 'selected' : ''}>${y}</option>`).join('');
   $('i-base').onchange = e => { s.base = +e.target.value; incomes(); writeUrl(); };
-  const rebase = rs => { const b = rs.find(r => r[0] === base)?.[1]; return b ? rs.filter(r => r[0] >= base && r[1] != null).map(r => [r[0], 100 * r[1] / b]) : []; };
   const panels = ks.map(k => ({ name: placeName(k), series: [
-    { name: 'Real rent prices', color: 'var(--r-on)', rows: rebase(rows('rent_relative', '', k)) },
-    { name: 'Real median income', color: 'var(--r-qc)', rows: rebase(rows('income', 'all', k)) }] }));
+    { name: 'Real rent prices', color: 'var(--r-on)', rows: rebase(rows('rent_relative', '', k), base) },
+    { name: 'Real median income', color: 'var(--r-qc)', rows: rebase(rows('income', 'all', k), base) }] }));
   const cr = panels[0].series[0].rows.at(-1), ci = panels[0].series[1].rows.at(-1);
   $('inc-title').textContent = cr && ci ? `Since ${base}, real rent prices in Canada ${cr[1] >= 100 ? 'rose' : 'fell'} ${Math.abs(cr[1] - 100).toFixed(0)}% and real median income ${ci[1] >= 100 ? 'rose' : 'fell'} ${Math.abs(ci[1] - 100).toFixed(0)}%` : 'Rent prices and incomes';
   const el = $('c-multiples');
@@ -328,12 +324,9 @@ function incomes() {
     const pa = D.P.get(a), pb = D.P.get(b), o = { country: 0, province: 1, territory: 1 };
     return (o[pa.level] ?? 2) - (o[pb.level] ?? 2) || REGION_ORDER.indexOf(pa.reg) - REGION_ORDER.indexOf(pb.reg) || pa.name.localeCompare(pb.name);
   });
-  const S = scaleFor('rent_inflation', '', cpiK);
   const ri = rows('rent_inflation', '', 'can').filter(r => r[1] != null), pk = ri.reduce((a, r) => r[1] > a[1] ? r : a, [0, -Infinity]), lr = ri.at(-1);
   const ph = frame(eh, pk[0] ? `Canada's rent prices rose fastest in ${pk[0]} (${fmt('rent_inflation', pk[1])}); in ${lr[0]} they rose ${fmt('rent_inflation', lr[1])}` : 'Rent price inflation', 'Yearly change in the CPI rent index. Rows: Canada, provinces, then cities. Left bar: region.', 'Source: Statistics Canada 18-10-0005');
-  const wrap = document.createElement('div'); wrap.className = 'scroll-x'; ph.append(wrap);
-  C.heat(wrap, cpiK.map(k => ({ k, name: placeName(k), color: regionVar(k), rows: rows('rent_inflation', '', k) })), d3.range(1950, 2026), v => colorOf(S, v), 'rent_inflation', { onRow: pick, cellH: 13, label: 'Rent inflation heat map' });
-  const lg = document.createElement('div'); lg.className = 'legend'; ph.append(lg); legend(lg, 'rent_inflation', S);
+  C.heatPanel(ph, series('rent_inflation', '', cpiK), d3.range(1950, 2026), 'rent_inflation', '', { onRow: pick, cellH: 13, label: 'Rent inflation heat map' });
 }
 
 /* ---------- who is stretched ---------- */
@@ -395,14 +388,11 @@ function need() {
 /* ---------- building ---------- */
 function building() {
   const ks = ['can', ...Object.keys(PR).map(p => 'pr-' + p)].filter(k => rows('starts', 'total', k).length);
-  const S = scaleFor('starts_per_1000', '', ks);
   const can = rows('starts_per_1000', '', 'can'), peak = can.reduce((a, r) => r[1] > a[1] ? r : a, [0, 0]), last = can.at(-1);
   $('b-title').textContent = last ? `Canada started ${last[1].toFixed(1)} homes per 1,000 residents in ${last[0]}, against a peak of ${peak[1].toFixed(1)} in ${peak[0]}` : 'Housing starts';
   const eh = $('c-startsheat');
   const ph = frame(eh, 'Housing starts per 1,000 residents', 'Rows: Canada and provinces; territories are not published. Hover for the number of starts.', 'Source: Statistics Canada 34-10-0126, 17-10-0005');
-  const wrap = document.createElement('div'); wrap.className = 'scroll-x'; ph.append(wrap);
-  C.heat(wrap, ks.map(k => ({ k, name: placeName(k), color: regionVar(k), rows: rows('starts_per_1000', '', k), extra: y => { const n = at('starts', 'total', k, y); return n == null ? '' : `${fmt('starts', n)} starts`; } })), d3.range(1971, 2026), v => colorOf(S, v), 'starts_per_1000', { cellH: 18, label: 'Starts per 1,000 heat map' });
-  const lg = document.createElement('div'); lg.className = 'legend'; ph.append(lg); legend(lg, 'starts_per_1000', S);
+  C.heatPanel(ph, series('starts_per_1000', '', ks).map(d => ({ ...d, extra: y => { const n = at('starts', 'total', d.k, y); return n == null ? '' : `${fmt('starts', n)} starts`; } })), d3.range(1971, 2026), 'starts_per_1000', '', { cellH: 18, label: 'Starts per 1,000 heat map' });
   if (!ks.includes(s.bp)) s.bp = 'can';
   $('b-place').innerHTML = ks.map(k => `<option value="${k}" ${k === s.bp ? 'selected' : ''}>${esc(placeName(k))}</option>`).join('');
   $('b-place').onchange = e => { s.bp = e.target.value; building(); writeUrl(); };
@@ -425,8 +415,8 @@ function sources() {
 async function main() {
   theme();
   try {
-    const [A, L] = await Promise.all(['data/atlas.json', 'data/local.json'].map(u => fetch(u).then(r => { if (!r.ok) throw new Error(`${u}: HTTP ${r.status}`); return r.json(); })));
-    load(A, L);
+    const [A, L, provinces] = await Promise.all(['data/atlas.json', 'data/local.json', 'provinces.json'].map(u => fetch(u).then(r => { if (!r.ok) throw new Error(`${u}: HTTP ${r.status}`); return r.json(); })));
+    load(A, L, provinces);
   } catch (e) { $('status').textContent = `The data could not be loaded (${e.message}). Reload to retry.`; return; }
   F = D.A.facts;
   readUrl();

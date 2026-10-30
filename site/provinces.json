@@ -1,0 +1,15 @@
+[
+  ["10", "Newfoundland and Labrador", "N.L.", "atl"],
+  ["11", "Prince Edward Island", "P.E.I.", "atl"],
+  ["12", "Nova Scotia", "N.S.", "atl"],
+  ["13", "New Brunswick", "N.B.", "atl"],
+  ["24", "Quebec", "Que.", "qc"],
+  ["35", "Ontario", "Ont.", "on"],
+  ["46", "Manitoba", "Man.", "pra"],
+  ["47", "Saskatchewan", "Sask.", "pra"],
+  ["48", "Alberta", "Alta.", "pra"],
+  ["59", "British Columbia", "B.C.", "bc"],
+  ["60", "Yukon", "Y.T.", "nor"],
+  ["61", "Northwest Territories", "N.W.T.", "nor"],
+  ["62", "Nunavut", "Nvt.", "nor"]
+]

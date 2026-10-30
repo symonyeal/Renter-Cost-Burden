@@ -2,13 +2,17 @@
 //! Legend: r repository root; p path; t table; g registry; o observations; s source records;
 //! k reconciliation rows; d delivered JSON.
 mod atlas;
+mod cache;
 mod census;
+mod compute;
 mod geo;
 mod history;
 mod net;
 mod place;
 mod sources;
 mod statcan;
+#[cfg(test)]
+mod tests;
 
 use serde_json::{Value, json};
 use std::{
@@ -50,30 +54,7 @@ fn fetch(r: &Path) -> Result<(), E> {
     o.extend(census::by_group(&mut open("98100252", &mut s)?, &mut g)?);
     let (c, k) = census::communities(&mut open("98100255", &mut s)?, &mut g)?;
     o.extend(c);
-    let mut checks = Vec::new();
-    for x in &k {
-        let y = o
-            .iter()
-            .find(|y| y.measure == "burden" && y.cat.is_empty() && y.place == x.place);
-        let (a, b) = (x.value, y.and_then(|y| y.value));
-        let n = o
-            .iter()
-            .find(|y| y.measure == "renter_households" && y.place == x.place)
-            .and_then(|y| y.value)
-            .unwrap_or(1.0);
-        // Same 25% sample, tabulated and rounded separately: the rates may differ by what
-        // ten households of rounding move (Yukon: 24.89% vs 24.95% of about 5,500 renters).
-        if let (Some(a), Some(b)) = (a, b)
-            && (a - b).abs() > 1000.0 / n
-        {
-            return Err(format!(
-                "98-10-0252 and 98-10-0255 disagree for {}: {b} vs {a}",
-                x.place
-            )
-            .into());
-        }
-        checks.push(json!({"place": x.place, "98100252": b, "98100255": a}));
-    }
+    let checks = census::reconcile(&o, &k)?;
     o.extend(sources::rents(&mut open("34100133", &mut s)?, &mut g)?);
     let mut v = [open("34100130", &mut s)?, open("34100131", &mut s)?];
     let (vac, n) = sources::vacancy(&mut v, &mut g)?;
@@ -101,7 +82,7 @@ fn fetch(r: &Path) -> Result<(), E> {
     println!(
         "Wrote {} observations for {} places from {} sources",
         o.len(),
-        g.m.len(),
+        g.len(),
         s.len()
     );
     Ok(())

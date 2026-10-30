@@ -14,6 +14,7 @@ use crate::{
     place::{Obs, Registry},
     statcan::{Table, number},
 };
+use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
 /// Place id and the vintage of its code.
@@ -68,14 +69,12 @@ impl Cell {
 }
 
 fn obs(m: &str, cat: &str, k: &(String, String), v: Option<f64>, s: &str, src: &str) -> Obs {
-    let mut o = Obs::new(m, cat, &k.0, 2021, v, src);
-    o.vintage = k.1.clone();
-    o.status = if v.is_none() && s.is_empty() {
+    let status = if v.is_none() && s.is_empty() {
         "not available".into()
     } else {
         s.to_owned()
     };
-    o
+    Obs::published(m, cat, k, 2021, (v, status), src)
 }
 
 /// Short form of the Census data-quality note for a geography (empty when unflagged).
@@ -288,6 +287,35 @@ pub fn communities(t: &mut Table, r: &mut Registry) -> Result<(Vec<Obs>, Vec<Obs
         o.push(obs("renter_households", "", &kv, rent.a, &s, "98100255"));
     }
     Ok((o, check))
+}
+
+/// Compare the separately rounded provincial Census tables at their published universe.
+pub fn reconcile(o: &[Obs], k: &[Obs]) -> Result<Vec<Value>, E> {
+    let mut checks = Vec::new();
+    for x in k {
+        let y = o
+            .iter()
+            .find(|y| y.measure == "burden" && y.cat.is_empty() && y.place == x.place);
+        let (a, b) = (x.value, y.and_then(|y| y.value));
+        let n = o
+            .iter()
+            .find(|y| y.measure == "renter_households" && y.place == x.place)
+            .and_then(|y| y.value)
+            .unwrap_or(1.0);
+        // Same 25% sample, tabulated and rounded separately: the rates may differ by what
+        // ten households of rounding move (Yukon: 24.89% vs 24.95% of about 5,500 renters).
+        if let (Some(a), Some(b)) = (a, b)
+            && (a - b).abs() > 1000.0 / n
+        {
+            return Err(format!(
+                "98-10-0252 and 98-10-0255 disagree for {}: {b} vs {a}",
+                x.place
+            )
+            .into());
+        }
+        checks.push(json!({"place": x.place, "98100252": b, "98100255": a}));
+    }
+    Ok(checks)
 }
 
 #[cfg(test)]

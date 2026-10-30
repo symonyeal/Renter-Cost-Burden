@@ -11,23 +11,13 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::Path,
+    sync::LazyLock,
 };
 
-pub const PROVINCES: [(&str, &str, &str, &str); 13] = [
-    ("10", "Newfoundland and Labrador", "N.L.", "atl"),
-    ("11", "Prince Edward Island", "P.E.I.", "atl"),
-    ("12", "Nova Scotia", "N.S.", "atl"),
-    ("13", "New Brunswick", "N.B.", "atl"),
-    ("24", "Quebec", "Que.", "qc"),
-    ("35", "Ontario", "Ont.", "on"),
-    ("46", "Manitoba", "Man.", "pra"),
-    ("47", "Saskatchewan", "Sask.", "pra"),
-    ("48", "Alberta", "Alta.", "pra"),
-    ("59", "British Columbia", "B.C.", "bc"),
-    ("60", "Yukon", "Y.T.", "nor"),
-    ("61", "Northwest Territories", "N.W.T.", "nor"),
-    ("62", "Nunavut", "Nvt.", "nor"),
-];
+// Embedded by Rust and fetched by the browser: codes, names and regions have one owner.
+pub static PROVINCES: LazyLock<Vec<(String, String, String, String)>> = LazyLock::new(|| {
+    serde_json::from_str(include_str!("../site/provinces.json")).expect("invalid province metadata")
+});
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Place {
@@ -76,6 +66,20 @@ impl Obs {
             self.year,
         )
     }
+    /// A published cell carries its source geography vintage and disclosure flag together.
+    pub fn published(
+        m: &str,
+        cat: &str,
+        k: &(String, String),
+        y: i32,
+        cell: (Option<f64>, String),
+        src: &str,
+    ) -> Obs {
+        let mut o = Self::new(m, cat, &k.0, y, cell.0, src);
+        o.status = cell.1;
+        o.vintage = k.1.clone();
+        o
+    }
 }
 
 /// Province code named by a source suffix such as ", B.C.", ", Ontario part, Ontario/Quebec".
@@ -85,12 +89,15 @@ pub fn province_of(g: &str) -> Option<&'static str> {
     PROVINCES
         .iter()
         .find(|p| p.1 == first || p.2 == first)
-        .map(|p| p.0)
-        .or_else(|| PROVINCES.iter().find(|p| p.1 == g).map(|p| p.0))
+        .map(|p| p.0.as_str())
+        .or_else(|| PROVINCES.iter().find(|p| p.1 == g).map(|p| p.0.as_str()))
 }
 
 pub fn region(pr: &str) -> &'static str {
-    PROVINCES.iter().find(|p| p.0 == pr).map_or("", |p| p.3)
+    PROVINCES
+        .iter()
+        .find(|p| p.0 == pr)
+        .map_or("", |p| p.3.as_str())
 }
 
 /// Display name: source suffixes and type tags removed, multi-place joins as an en dash.
@@ -126,11 +133,15 @@ pub fn key(g: &str) -> String {
 
 #[derive(Default)]
 pub struct Registry {
-    pub m: BTreeMap<String, Place>,
+    m: BTreeMap<String, Place>,
 }
 
 impl Registry {
-    fn put(&mut self, k: &str, g: &str, level: &str, pr: &str, w: u8) {
+    pub fn len(&self) -> usize {
+        self.m.len()
+    }
+
+    pub fn name(&mut self, k: &str, g: &str, level: &str, pr: &str, w: u8) {
         let p = self.m.entry(k.to_owned()).or_insert_with(|| Place {
             id: k.to_owned(),
             name: clean(g),
@@ -154,7 +165,7 @@ impl Registry {
         // A bare seven-digit code is a census subdivision without its DGUID prefix.
         if d.len() == 7 && d.chars().all(|c| c.is_ascii_digit()) {
             let k = format!("csd-{d}");
-            self.put(&k, g, "community", &d[..2], w);
+            self.name(&k, g, "community", &d[..2], w);
             return Some((k, String::new()));
         }
         if d.len() < 10 {
@@ -188,7 +199,7 @@ impl Registry {
         };
         // 2021 classification wins: a 2011 agglomeration may be a metro area now.
         let w = if v == "2021" { w + 1 } else { w };
-        self.put(&k, g, level, pr, w);
+        self.name(&k, g, level, pr, w);
         Some((k, v.to_owned()))
     }
 
@@ -196,7 +207,7 @@ impl Registry {
     /// different sources are never assumed to be the same area.
     pub fn named(&mut self, scope: &str, g: &str, level: &str) -> String {
         let k = format!("{scope}-{}", key(g));
-        self.put(&k, g, level, province_of(g).unwrap_or_default(), 0);
+        self.name(&k, g, level, province_of(g).unwrap_or_default(), 0);
         k
     }
 
@@ -209,10 +220,6 @@ impl Registry {
             .filter(|p| levels.contains(&p.level.as_str()) && key(&p.name) == k)
             .collect();
         (hits.len() == 1).then(|| hits[0].id.clone())
-    }
-
-    pub fn name(&mut self, k: &str, g: &str, level: &str, pr: &str, w: u8) {
-        self.put(k, g, level, pr, w);
     }
 }
 

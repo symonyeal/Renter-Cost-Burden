@@ -86,7 +86,7 @@ Census data-quality notes are carried as short flags: "non-response 50%+, use wi
 | Starts per 1,000 | starts / July 1 population × 1,000 | no value |
 | Apartment share | apartment starts / all starts | no value |
 
-The headline facts on the site (`facts` in `atlas.json`) are computed in `src/atlas.rs` from the
+The headline facts on the site (`facts` in `atlas.json`) are computed in `src/compute.rs` from the
 same observations, so the page never types a number by hand.
 
 ## Maps
@@ -111,7 +111,7 @@ time-lapse shows levels rising. Changes use fixed classes around zero.
 | --- | --- |
 | Unit tests: parsing, flags, rounding rules, place ids, derivations, encoding | `cargo test --locked` |
 | Format and lints | `cargo fmt --check`, `cargo clippy --locked --all-targets -- -D warnings` |
-| Offline build is byte-reproducible | CI builds twice and compares `site/data/manifest.json` |
+| Offline build is byte-reproducible | CI builds twice and compares the entire `site/data/` tree |
 | Independent cell-by-cell comparison with the raw tables | `python qa/sources.py` (needs `data/raw/`) |
 | Browser: maps, scrubber, URL state, search, charts, downloads, theme, 390 px | `python qa/browser.py` |
 

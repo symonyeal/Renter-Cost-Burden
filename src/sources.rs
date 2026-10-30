@@ -24,23 +24,9 @@ fn place(
     }
 }
 
-fn push(
-    o: &mut Vec<Obs>,
-    m: &str,
-    cat: &str,
-    kv: &(String, String),
-    y: i32,
-    x: (Option<f64>, String),
-    src: &str,
-) {
-    let mut b = Obs::new(m, cat, &kv.0, y, x.0, src);
-    b.status = x.1;
-    b.vintage = kv.1.clone();
-    o.push(b);
-}
-
 /// CMHC average rents, row and apartment structures of three or more units, by bedroom count.
 pub fn rents(t: &mut Table, r: &mut Registry) -> Result<Vec<Obs>, E> {
+    let id = t.id.clone();
     let mut o = Vec::new();
     t.each(|w| {
         if w.get("Type of structure") != "Row and apartment structures of three units and over" {
@@ -54,7 +40,7 @@ pub fn rents(t: &mut Table, r: &mut Registry) -> Result<Vec<Obs>, E> {
             s => return Err(format!("unknown unit type {s}").into()),
         };
         if let Some(k) = place(r, w, "cmhc", "centre", 1) {
-            push(&mut o, "rent", cat, &k, w.year()?, w.value()?, "34100133");
+            o.push(Obs::published("rent", cat, &k, w.year()?, w.value()?, &id));
         }
         Ok(())
     })?;
@@ -95,9 +81,7 @@ pub fn vacancy(ts: &mut [Table], r: &mut Registry) -> Result<(Vec<Obs>, usize), 
                 }
             };
             let y = w.year()?;
-            let mut v = Vec::new();
-            push(&mut v, "vacancy", "", &k, y, w.value()?, &id);
-            let b = v.remove(0);
+            let b = Obs::published("vacancy", "", &k, y, w.value()?, &id);
             match m.get(&(k.0.clone(), y)) {
                 Some(a) if a.value != b.value => n += 1,
                 Some(_) => {}
@@ -113,6 +97,7 @@ pub fn vacancy(ts: &mut [Table], r: &mut Registry) -> Result<(Vec<Obs>, usize), 
 
 /// Consumer Price Index, annual average, 2002=100.
 pub fn cpi(t: &mut Table, r: &mut Registry) -> Result<Vec<Obs>, E> {
+    let id = t.id.clone();
     let mut o = Vec::new();
     t.each(|w| {
         let cat = match w.get("Products and product groups") {
@@ -126,7 +111,7 @@ pub fn cpi(t: &mut Table, r: &mut Registry) -> Result<Vec<Obs>, E> {
             return Ok(());
         }
         if let Some(k) = place(r, w, "cpi", "centre", 1) {
-            push(&mut o, "cpi", cat, &k, w.year()?, w.value()?, "18100005");
+            o.push(Obs::published("cpi", cat, &k, w.year()?, w.value()?, &id));
         }
         Ok(())
     })?;
@@ -135,6 +120,7 @@ pub fn cpi(t: &mut Table, r: &mut Registry) -> Result<Vec<Obs>, E> {
 
 /// Canadian Income Survey median after-tax income, constant dollars.
 pub fn income(t: &mut Table, r: &mut Registry) -> Result<Vec<Obs>, E> {
+    let id = t.id.clone();
     let mut o = Vec::new();
     t.each(|w| {
         if w.get("Income concept") != "Median after-tax income" {
@@ -147,7 +133,14 @@ pub fn income(t: &mut Table, r: &mut Registry) -> Result<Vec<Obs>, E> {
             _ => return Ok(()),
         };
         if let Some(k) = place(r, w, "cis", "centre", 1) {
-            push(&mut o, "income", cat, &k, w.year()?, w.value()?, "11100190");
+            o.push(Obs::published(
+                "income",
+                cat,
+                &k,
+                w.year()?,
+                w.value()?,
+                &id,
+            ));
         }
         Ok(())
     })?;
@@ -167,7 +160,14 @@ pub fn population(t: &mut Table, r: &mut Registry) -> Result<Vec<Obs>, E> {
             return Ok(());
         }
         if let Some(k) = r.dguid(w.get("DGUID"), w.get("GEO"), 1) {
-            push(&mut o, "population", "", &k, w.year()?, w.value()?, &id);
+            o.push(Obs::published(
+                "population",
+                "",
+                &k,
+                w.year()?,
+                w.value()?,
+                &id,
+            ));
         }
         Ok(())
     })?;
@@ -176,6 +176,7 @@ pub fn population(t: &mut Table, r: &mut Registry) -> Result<Vec<Obs>, E> {
 
 /// CMHC housing starts by dwelling type and total completions.
 pub fn starts(t: &mut Table, r: &mut Registry) -> Result<Vec<Obs>, E> {
+    let id = t.id.clone();
     let mut o = Vec::new();
     t.each(|w| {
         let cat = match w.get("Type of unit") {
@@ -192,7 +193,7 @@ pub fn starts(t: &mut Table, r: &mut Registry) -> Result<Vec<Obs>, E> {
             _ => return Ok(()),
         };
         if let Some(k) = place(r, w, "cmhc", "centre", 1) {
-            push(&mut o, m, cat, &k, w.year()?, w.value()?, "34100126");
+            o.push(Obs::published(m, cat, &k, w.year()?, w.value()?, &id));
         }
         Ok(())
     })?;
@@ -282,11 +283,7 @@ pub fn chs(t: &mut Table, r: &mut Registry) -> Result<Vec<Obs>, E> {
         let x = w.value()?;
         let e = m
             .entry((measure.to_owned(), cat.clone(), k.0.clone(), y))
-            .or_insert_with(|| {
-                let mut b = Obs::new(measure, &cat, &k.0, y, None, &id);
-                b.vintage = k.1.clone();
-                b
-            });
+            .or_insert_with(|| Obs::published(measure, &cat, &k, y, (None, String::new()), &id));
         match slot {
             0 => {
                 e.value = x.0;
