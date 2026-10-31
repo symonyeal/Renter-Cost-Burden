@@ -1,40 +1,21 @@
 # Renter Cost Burden
 
-How much do Canadian renters pay, how has it changed, and where is it hardest? This project
-gathers the official answers from Statistics Canada and CMHC into one interactive atlas, with
-every province, territory, metro area and 5,161 communities. You can compare any of them with
-each other.
+[Open the atlas](https://symonyeal.github.io/Renter-Cost-Burden/)
 
-**Site: https://symonyeal.github.io/Renter-Cost-Burden/**
+The atlas compares renter shelter costs across Canadian provinces, territories, metropolitan areas and 5,161 communities. Measures come from Statistics Canada and CMHC.
 
-## What the tables show
+## Findings
 
-- **One renter household in three spends 30% or more of its income on shelter.** The 2021
-  Census put it at 33.2%, down from 40.0% in 2016. The 2021 Census asked about 2020 income,
-  which included pandemic benefits, so part of the fall is temporary income support rather than
-  cheaper housing.
-- **Rents for the same units kept pace with prices; average rents did not.** The CPI rent
-  index, which prices the same rental units over time, rose 68.6% from 2000 to 2025 against
-  72.1% for all consumer prices. Average two-bedroom rents in the CMHC survey rose faster. In
-  the typical metro area they rose 31% more than prices from 2015 to 2025 (median of 40 metro
-  areas, in 2025 dollars), because newer and dearer units entered the stock.
-- **Rent is still rising fast.** In 2025, two-bedroom rents rose more than 5% in 24 of the 40
-  metro areas with a published change. Vancouver had the highest metro two-bedroom rent
-  ($2,364); Canmore, Alberta, an agglomeration, was higher still ($2,438).
-- **About one renter household in five is in core housing need.** That was 22.0% in the ten
-  provinces in 2024, the same as in 2018. It was highest in Saskatchewan and British Columbia
-  (29%) and lowest in Quebec (13.7%). Core housing need is a stricter test than the 30% rule: the
-  home must also be unaffordable, crowded or in poor repair, with no acceptable local option
-  under 30% of income.
-- **Burden falls steeply with income.** In 2021, 77% of renter households with $10,000–20,000
-  of income spent 30% or more, against 2.5% of those with $100,000 or more. People living alone
-  were the most stretched household type (45.3%).
-- **Building per person is half its 1970s peak.** Canada started 6.2 homes per 1,000 residents
-  in 2025, against 11.9 in 1973. Apartments were 66% of starts in 2025, against 24% in 1995.
+- In 2021, 33.2% of renter households spent at least 30% of income on shelter, down from 40.0% in 2016. Census 2021 measured 2020 income, which included pandemic benefits; some of the decline reflects temporary income support rather than lower housing costs.
+- From 2000 to 2025, the CPI rent index, which tracks the same rental units, rose 68.6%, compared with 72.1% for all consumer prices. Average two-bedroom rents in the CMHC survey rose faster: by 31% more than prices from 2015 to 2025 in the median of 40 metro areas, in 2025 dollars, as newer and more expensive units entered the stock.
+- In 2025, two-bedroom rents rose more than 5% in 24 of the 40 metro areas with a published change. Vancouver had the highest metro rent at $2,364; Canmore, Alberta, an agglomeration, was higher at $2,438.
+- Core housing need affected 22.0% of renter households in the ten provinces in 2024, unchanged from 2018. Rates were highest in Saskatchewan and British Columbia (29%) and lowest in Quebec (13.7%). Core housing need also requires that the home be unaffordable, crowded or in poor repair, with no acceptable local option costing under 30% of income.
+- In 2021, 77% of renter households with $10,000–20,000 income spent at least 30% on shelter, compared with 2.5% of those with $100,000 or more. The share was 45.3% for people living alone, the highest household-type rate.
+- Canada recorded 6.2 housing starts per 1,000 residents in 2025, compared with 11.9 in 1973. Apartments were 66% of starts in 2025, up from 24% in 1995.
 
-## How the atlas treats the numbers
+## Definitions and limits
 
-**Each measure keeps its own population and period.** The 30% burden rate comes from the
+Each measure keeps its own population and period. The 30% burden rate comes from the
 Census and covers renter households with income above zero. Core housing need comes from the
 Canadian Housing Survey and covers the ten provinces only. Average rent and vacancy come from
 CMHC's survey of purpose-built rental buildings with three or more units. The CPI rent index
@@ -42,26 +23,26 @@ follows the same units over time. These describe different things, so the site n
 one by another or presents one as another. A median rent divided by a median income is not a
 burden rate, and the site does not compute one.
 
-**Nothing is filled in.** Census years are 2016 and 2021, and Housing Survey years are 2018,
+Census years are 2016 and 2021, and Housing Survey years are 2018,
 2021, 2022 and 2024. Charts show those years as separate points and draw nothing between them.
 Cells that Statistics Canada suppressed stay empty, with their status flag shown on hover.
 
-**Small places get a warning, not a guess.** Census counts are randomly rounded to multiples
+Census counts are randomly rounded to multiples
 of five, and small counts can round to zero. A community with 55 renter households can show
-0% burdened when the true figure is a handful. The community map shows every community. The
+0% burdened even when some households are burdened. The community map shows every community. The
 ranking, the colour scale and the strip chart use only those with 250 or more renter households,
 and every tooltip gives the renter count.
 
-**The two Census tables have to agree.** Burden for Canada, provinces and metro areas comes
+Burden for Canada, provinces and metro areas comes
 from table 98-10-0252. Burden for census divisions and communities comes from 98-10-0255. The
 build checks that both give the same provincial rates to within rounding. That check showed
 98-10-0252 excludes households on reserve, so the community table is read the same way.
 
-**Inflation adjustment uses the province's own prices.** Real rents use the all-items CPI of
+Real rents use the all-items CPI of
 the centre's province, in 2025 dollars. Where a province's CPI is not published for a year, the
 real rent for that year is left empty.
 
-**Places join on Statistics Canada codes, not names.** Sources publish codes from the 2006,
+Sources publish codes from the 2006,
 2011, 2016 and 2021 Censuses. The atlas drops the vintage and keeps the code (Toronto is
 `m-535` in every table). Each value records which vintage it came from, because survey areas
 are redrawn after each Census. Two sources needed repair. The Housing Survey table writes
@@ -89,7 +70,7 @@ The full definitions, universes and caveats for every measure are in
 
 Data: Statistics Canada and CMHC, Open Government Licence – Canada.
 
-## Project map
+## Pipeline and files
 
 The pipeline is Rust. `cargo run --release --locked -- build` works offline: it reads the
 committed files in `data/processed/` and writes the site's data to `site/data/`.
