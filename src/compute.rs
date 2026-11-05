@@ -1,15 +1,77 @@
 //! Published observations to derived series and headline facts; no I/O or export format.
 //! Legend: p places; o observations; v values keyed by (measure, category, place, year);
 //! b CPI base year; pr province; z observed value; f headline facts.
-use crate::place::{Obs, Place};
-use serde_json::{Map, Value, json};
+use crate::place::{Input, Lineage, Obs, Place};
+use serde::Serialize;
+#[cfg(test)]
+use serde_json::json;
 use std::collections::BTreeMap;
 
 /// Add derived observations in natural-key order and compute facts from the complete set.
-pub fn enrich(p: &[Place], o: &mut Vec<Obs>) -> Value {
+pub fn enrich(p: &[Place], o: &mut Vec<Obs>) -> Facts {
     o.extend(derive(p, o));
     o.sort_by_key(Obs::key);
     facts(p, o)
+}
+
+/// Headline quantities keep availability and units explicit before serialization.
+#[derive(Default, Serialize)]
+pub struct Facts {
+    cpi_rent: Option<CpiRent>,
+    metro_real_rent: Option<MetroRent>,
+    top_rent: Option<TopRent>,
+    burden: Option<Burden>,
+    core_need: Option<CoreNeed>,
+    vacancy: Option<Vacancy>,
+    top_community: Option<Community>,
+}
+#[derive(Serialize)]
+struct CpiRent {
+    from: i32,
+    to: i32,
+    rent_pct: f64,
+    all_pct: f64,
+}
+#[derive(Serialize)]
+struct MetroRent {
+    from: i32,
+    to: i32,
+    median_pct: f64,
+    areas: usize,
+}
+#[derive(Serialize)]
+struct TopRent {
+    year: i32,
+    place: String,
+    name: String,
+    rent: f64,
+}
+#[derive(Serialize)]
+struct Burden {
+    #[serde(rename = "2016")]
+    y2016: f64,
+    #[serde(rename = "2021")]
+    y2021: f64,
+}
+#[derive(Serialize)]
+struct CoreNeed {
+    from: i32,
+    to: i32,
+    from_pct: f64,
+    to_pct: f64,
+}
+#[derive(Serialize)]
+struct Vacancy {
+    year: i32,
+    pct: f64,
+    low_year: i32,
+    low_pct: f64,
+}
+#[derive(Serialize)]
+struct Community {
+    place: String,
+    name: String,
+    pct: f64,
 }
 
 type V = BTreeMap<(String, String, String, i32), f64>;
@@ -124,6 +186,84 @@ fn derive(p: &[Place], o: &[Obs]) -> Vec<Obs> {
             _ => {}
         }
     }
+    let inputs: BTreeMap<_, _> = o.iter().map(|x| (x.key(), x)).collect();
+    for x in &mut d {
+        let key = |m: &str, c: &str, k: &str, y| (m.to_owned(), c.to_owned(), k.to_owned(), y);
+        let mut keys = Vec::new();
+        match x.measure.as_str() {
+            "rent_real" => {
+                let g = format!(
+                    "pr-{}",
+                    pr.get(x.place.as_str()).copied().unwrap_or_default()
+                );
+                keys.extend([
+                    key("rent", &x.cat, &x.place, x.year),
+                    key("cpi", "all", &g, x.year),
+                    key("cpi", "all", &g, b),
+                ]);
+            }
+            "rent_change" => keys.extend([
+                key("rent", &x.cat, &x.place, x.year),
+                key("rent", &x.cat, &x.place, x.year - 1),
+            ]),
+            "rent_relative" => keys.extend([
+                key("cpi", "rent", &x.place, x.year),
+                key("cpi", "all", &x.place, x.year),
+            ]),
+            "rent_inflation" => keys.extend([
+                key("cpi", "rent", &x.place, x.year),
+                key("cpi", "rent", &x.place, x.year - 1),
+            ]),
+            "starts_per_1000" => keys.extend([
+                key("starts", "total", &x.place, x.year),
+                key("population", "", &x.place, x.year),
+            ]),
+            "apartment_share" => keys.extend([
+                key("starts", "apartment", &x.place, x.year),
+                key("starts", "total", &x.place, x.year),
+            ]),
+            _ => unreachable!("unknown calculation"),
+        }
+        let rows: Vec<_> = keys.iter().map(|k| inputs[k]).collect();
+        let vintages: std::collections::BTreeSet<_> = rows
+            .iter()
+            .filter(|a| !a.vintage.is_empty())
+            .map(|a| a.vintage.as_str())
+            .collect();
+        x.vintage = vintages.iter().copied().collect::<Vec<_>>().join(" / ");
+        let flags: std::collections::BTreeSet<_> = rows
+            .iter()
+            .filter(|a| !a.status.is_empty())
+            .map(|a| a.status.as_str())
+            .collect();
+        x.status = std::iter::once("derived")
+            .chain(flags)
+            .collect::<Vec<_>>()
+            .join("; ");
+        let comparability = if vintages.len() > 1 {
+            "Inputs use different geography vintages; boundary changes may affect comparison."
+        } else if rows.iter().any(|a| a.vintage.is_empty()) {
+            "Geography vintage is unavailable for at least one input; comparability is not established."
+        } else {
+            "Inputs share a geography vintage; survey composition can still change."
+        };
+        x.lineage = Some(Lineage {
+            transform: x.measure.clone(),
+            comparability: format!("{comparability} Input intervals are not propagated."),
+            inputs: rows
+                .into_iter()
+                .map(|a| Input {
+                    measure: a.measure.clone(),
+                    cat: a.cat.clone(),
+                    place: a.place.clone(),
+                    year: a.year,
+                    source: a.source.clone(),
+                    vintage: a.vintage.clone(),
+                    status: a.status.clone(),
+                })
+                .collect(),
+        });
+    }
     d
 }
 
@@ -148,9 +288,9 @@ fn last_year(v: &V, m: &str, cat: &str, k: &str) -> Option<i32> {
 }
 
 /// Headline numbers for the lead, computed here so the page never hand-types a figure.
-fn facts(p: &[Place], o: &[Obs]) -> Value {
+fn facts(p: &[Place], o: &[Obs]) -> Facts {
     let v = lookup(o);
-    let mut f = Map::new();
+    let mut f = Facts::default();
     let lvl: BTreeMap<&str, &str> = p
         .iter()
         .map(|x| (x.id.as_str(), x.level.as_str()))
@@ -164,11 +304,12 @@ fn facts(p: &[Place], o: &[Obs]) -> Value {
             get(&v, "cpi", "all", "can", y0),
             get(&v, "cpi", "all", "can", y1),
         ) {
-            f.insert(
-                "cpi_rent".into(),
-                json!({"from": y0, "to": y1,
-                "rent_pct": 100.0 * (r1 / r0 - 1.0), "all_pct": 100.0 * (a1 / a0 - 1.0)}),
-            );
+            f.cpi_rent = Some(CpiRent {
+                from: y0,
+                to: y1,
+                rent_pct: 100.0 * (r1 / r0 - 1.0),
+                all_pct: 100.0 * (a1 / a0 - 1.0),
+            });
         }
     }
     // Real two-bedroom rent change in the typical metro area, same areas in both years.
@@ -197,27 +338,31 @@ fn facts(p: &[Place], o: &[Obs]) -> Value {
             .collect();
         let n = z.len();
         if let Some(q) = median(z) {
-            f.insert(
-                "metro_real_rent".into(),
-                json!({"from": y0, "to": y1, "median_pct": q, "areas": n}),
-            );
+            f.metro_real_rent = Some(MetroRent {
+                from: y0,
+                to: y1,
+                median_pct: q,
+                areas: n,
+            });
         }
         let top = metros
             .iter()
             .filter_map(|k| Some((get(&v, "rent", "2br", k, y1)?, *k)))
             .max_by(|a, b| a.0.total_cmp(&b.0));
         if let Some((x, k)) = top {
-            f.insert(
-                "top_rent".into(),
-                json!({"year": y1, "place": k, "name": name[k], "rent": x}),
-            );
+            f.top_rent = Some(TopRent {
+                year: y1,
+                place: k.to_owned(),
+                name: name[k].to_owned(),
+                rent: x,
+            });
         }
     }
     if let (Some(a), Some(b)) = (
         get(&v, "burden_history", "", "can", 2016),
         get(&v, "burden_history", "", "can", 2021),
     ) {
-        f.insert("burden".into(), json!({"2016": a, "2021": b}));
+        f.burden = Some(Burden { y2016: a, y2021: b });
     }
     let cn: Vec<(i32, f64)> = v
         .iter()
@@ -225,10 +370,12 @@ fn facts(p: &[Place], o: &[Obs]) -> Value {
         .map(|x| (x.0.3, *x.1))
         .collect();
     if let (Some(a), Some(b)) = (cn.first(), cn.last()) {
-        f.insert(
-            "core_need".into(),
-            json!({"from": a.0, "to": b.0, "from_pct": a.1, "to_pct": b.1}),
-        );
+        f.core_need = Some(CoreNeed {
+            from: a.0,
+            to: b.0,
+            from_pct: a.1,
+            to_pct: b.1,
+        });
     }
     let vac: Vec<(i32, f64)> = v
         .iter()
@@ -241,10 +388,12 @@ fn facts(p: &[Place], o: &[Obs]) -> Value {
             .min_by(|a, b| a.1.total_cmp(&b.1))
             .copied()
             .unwrap_or(*l);
-        f.insert(
-            "vacancy".into(),
-            json!({"year": l.0, "pct": l.1, "low_year": lo.0, "low_pct": lo.1}),
-        );
+        f.vacancy = Some(Vacancy {
+            year: l.0,
+            pct: l.1,
+            low_year: lo.0,
+            low_pct: lo.1,
+        });
     }
     // Communities with at least 5,000 renter households: rounding cannot drive the rank, and
     // student enclaves (Metro Vancouver A, the UBC lands, 63%) do not stand for a city.
@@ -254,12 +403,13 @@ fn facts(p: &[Place], o: &[Obs]) -> Value {
         .filter(|x| get(&v, "renter_households", "", &x.0.2, 2021).is_some_and(|n| n >= 5000.0))
         .max_by(|a, b| a.1.total_cmp(b.1));
     if let Some((k, x)) = top {
-        f.insert(
-            "top_community".into(),
-            json!({"place": k.2, "name": name[k.2.as_str()], "pct": x}),
-        );
+        f.top_community = Some(Community {
+            place: k.2.clone(),
+            name: name[k.2.as_str()].to_owned(),
+            pct: *x,
+        });
     }
-    Value::Object(f)
+    f
 }
 
 #[cfg(test)]
@@ -297,6 +447,39 @@ mod tests {
             .map(|x| x.year)
             .collect();
         assert_eq!(ch, vec![2024, 2025]);
+    }
+    #[test]
+    fn calculations_retain_flags_and_mark_geography_changes() {
+        let p = [pl("m-1", "35", "metro")];
+        let mut a = Obs::new("rent", "2br", "m-1", 2024, Some(1000.0), "survey");
+        a.status = "D".into();
+        a.vintage = "2016".into();
+        let mut b = Obs::new("rent", "2br", "m-1", 2025, Some(900.0), "survey");
+        b.status = "E".into();
+        b.vintage = "2021".into();
+        let d = derive(&p, &[a, b]);
+        let x = d.iter().find(|x| x.measure == "rent_change").unwrap();
+        assert!((x.value.unwrap() + 10.0).abs() < 1e-10);
+        assert!(x.status.contains('D') && x.status.contains('E'));
+        let l = x.lineage.as_ref().unwrap();
+        assert_eq!(l.inputs.len(), 2);
+        assert!(l.comparability.contains("different geography vintages"));
+        assert_eq!(l.inputs[1].vintage, "2016");
+        assert_eq!(l.inputs[0].source, "survey");
+    }
+    #[test]
+    fn headline_calculations_return_typed_quantities() {
+        let p = [pl("can", "", "country")];
+        let o = [
+            Obs::new("cpi", "rent", "can", 2000, Some(100.0), "table"),
+            Obs::new("cpi", "rent", "can", 2025, Some(150.0), "table"),
+            Obs::new("cpi", "all", "can", 2000, Some(100.0), "table"),
+            Obs::new("cpi", "all", "can", 2025, Some(120.0), "table"),
+        ];
+        let f = facts(&p, &o).cpi_rent.unwrap();
+        assert_eq!((f.from, f.to), (2000, 2025));
+        assert!((f.rent_pct - 50.0).abs() < 1e-10);
+        assert!((f.all_pct - 20.0).abs() < 1e-10);
     }
     #[test]
     fn median_even_and_odd() {

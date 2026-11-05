@@ -111,7 +111,7 @@ time-lapse shows levels rising. Changes use fixed classes around zero.
 | --- | --- |
 | Unit tests: parsing, flags, rounding rules, place ids, derivations, encoding | `cargo test --locked` |
 | Format and lints | `cargo fmt --check`, `cargo clippy --locked --all-targets -- -D warnings` |
-| Offline build is byte-reproducible | CI builds twice and compares the entire `site/data/` tree |
+| Offline build is byte-reproducible | CI builds twice and compares the manifest, including every accepted file hash and semantic input |
 | Independent cell-by-cell comparison with the raw tables | `python qa/sources.py` (needs `data/raw/`) |
 | Browser: maps, scrubber, URL state, search, charts, downloads, theme, 390 px | `python qa/browser.py` |
 
@@ -119,3 +119,32 @@ time-lapse shows levels rising. Changes use fixed classes around zero.
 renter core-need percentage, the CPI rent and all-items series for Canada and the provinces, the
 Census renter burden for Canada, provinces and territories recomputed from counts, and all 110
 cells of the 2016–2021 comparison.
+
+## Acceptance and wire contract
+
+Both fetch and offline build construct a validated dataset before calculation. Measure contracts in
+`data/measures.json` require identity, display format, compatible units, universe, categories and
+explicit numeric bounds. Natural keys and place ids are unique; source and place references resolve.
+Values and interval bounds must be finite. An interval requires both ends and an estimate between them.
+Unavailable and suppressed statuses cannot carry a value. Derived percentage changes allow negative values.
+Derived output is validated again before any accepted export changes.
+
+Schema 3 uses `[year,value,lower,upper,status,source,vintage,lineage]` for every observation row.
+Published observations retain their original qualifications and geography vintage. Derived rows retain
+each input's natural key, source, qualification and vintage in lineage; `lineage.csv` provides the same
+information alongside the complete observation download. Input intervals are not propagated. Mixed
+vintages are marked as potentially affected by boundary changes; missing vintages leave comparability
+unestablished. These labels preserve the formulas without claiming that a code always names identical
+boundaries over time. The browser rejects unsupported schemas and malformed observation rows.
+
+A new measure needs an adapter or calculation, a complete measure contract and, when applicable,
+a section/chart policy. A new calculation must record its inputs and define missing-input behavior;
+its range must describe the calculated quantity rather than its inputs. Headline facts are typed Rust
+quantities serialized by the export layer. Tests cover invalid contracts and qualified cross-vintage inputs.
+
+Processed and exported datasets use immutable generation directories plus one manifest pointer. A
+writer holds an operating-system lease for the entire command; a crash releases the lease. Failed
+writes leave the previous pointer intact. The manifest inventories all accepted artifacts, including
+geometry and province metadata, and hashes all semantic inputs. Reproducibility checks compare this
+complete accepted inventory; retained staging directories are outside the accepted dataset. Pages runs
+formatting, lints, tests and the repeated offline build before uploading the resulting site.

@@ -30,6 +30,23 @@ pub struct Place {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct Input {
+    pub measure: String,
+    pub cat: String,
+    pub place: String,
+    pub year: i32,
+    pub source: String,
+    pub vintage: String,
+    pub status: String,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct Lineage {
+    pub transform: String,
+    pub inputs: Vec<Input>,
+    pub comparability: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Obs {
     pub measure: String,
     pub cat: String,
@@ -41,6 +58,8 @@ pub struct Obs {
     pub status: String,
     pub source: String,
     pub vintage: String,
+    #[serde(skip)]
+    pub lineage: Option<Lineage>,
 }
 
 impl Obs {
@@ -56,6 +75,7 @@ impl Obs {
             status: String::new(),
             source: src.into(),
             vintage: String::new(),
+            lineage: None,
         }
     }
     pub fn key(&self) -> (String, String, String, i32) {
@@ -223,16 +243,16 @@ impl Registry {
     }
 }
 
-pub fn save(root: &Path, r: &Registry, o: &mut [Obs]) -> Result<(), E> {
+pub fn save(dir: &Path, r: &Registry, o: &mut [Obs]) -> Result<(), E> {
     o.sort_by(|a, b| a.key().cmp(&b.key()).then(a.source.cmp(&b.source)));
     validate(o, r)?;
     let used: BTreeSet<&str> = o.iter().map(|o| o.place.as_str()).collect();
-    let mut w = csv::Writer::from_path(root.join("data/processed/places.csv"))?;
+    let mut w = csv::Writer::from_path(dir.join("places.csv"))?;
     for p in r.m.values().filter(|p| used.contains(p.id.as_str())) {
         w.serialize(p)?;
     }
     w.flush()?;
-    let mut w = csv::Writer::from_path(root.join("data/processed/observations.csv"))?;
+    let mut w = csv::Writer::from_path(dir.join("observations.csv"))?;
     for x in o.iter() {
         w.serialize(x)?;
     }
@@ -240,11 +260,11 @@ pub fn save(root: &Path, r: &Registry, o: &mut [Obs]) -> Result<(), E> {
     Ok(())
 }
 
-pub fn load(root: &Path) -> Result<(Vec<Place>, Vec<Obs>), E> {
-    let p: Vec<Place> = csv::Reader::from_path(root.join("data/processed/places.csv"))?
+pub fn load(dir: &Path) -> Result<(Vec<Place>, Vec<Obs>), E> {
+    let p: Vec<Place> = csv::Reader::from_path(dir.join("places.csv"))?
         .deserialize()
         .collect::<Result<_, _>>()?;
-    let o: Vec<Obs> = csv::Reader::from_path(root.join("data/processed/observations.csv"))?
+    let o: Vec<Obs> = csv::Reader::from_path(dir.join("observations.csv"))?
         .deserialize()
         .collect::<Result<_, _>>()?;
     Ok((p, o))
@@ -264,21 +284,35 @@ pub fn validate(o: &[Obs], r: &Registry) -> Result<(), E> {
         if !r.m.contains_key(&x.place) {
             return Err(format!("unregistered place {}", x.place).into());
         }
-        if let Some(v) = x.value {
-            let pct = x.measure.starts_with("burden")
-                || x.measure.starts_with("core_need")
-                || matches!(
-                    x.measure.as_str(),
-                    "vacancy" | "renter_share" | "subsidized_share"
-                );
-            if v < 0.0 || (pct && v > 100.0) {
-                return Err(format!("{k:?} value {v} outside its range").into());
-            }
-            if let (Some(lo), Some(hi)) = (x.lower, x.upper)
-                && (lo > v || hi < v)
-            {
-                return Err(format!("{k:?} interval does not contain its estimate").into());
-            }
+        if x.value
+            .into_iter()
+            .chain(x.lower)
+            .chain(x.upper)
+            .any(|v| !v.is_finite())
+        {
+            return Err(format!("{k:?} non-finite cell").into());
+        }
+        if (matches!(
+            x.status.as_str(),
+            "F" | "x"
+                | ".."
+                | "..."
+                | "not available"
+                | "incompletely enumerated"
+                | "rounded counts do not add up"
+        ) || x.status.contains("income data suppressed"))
+            && x.value.is_some()
+        {
+            return Err(format!("{k:?} unavailable status with value").into());
+        }
+        // Intervals are two-sided and require an estimate; no implicit infinite endpoints.
+        if x.lower.is_some() != x.upper.is_some() || (x.lower.is_some() && x.value.is_none()) {
+            return Err(format!("{k:?} incomplete interval").into());
+        }
+        if let (Some(v), Some(lo), Some(hi)) = (x.value, x.lower, x.upper)
+            && (lo > v || hi < v)
+        {
+            return Err(format!("{k:?} interval does not contain estimate").into());
         }
     }
     Ok(())

@@ -20,8 +20,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - run: cargo fmt --check
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: cargo test --locked
       # site/data is generated: built offline from the committed data/processed files.
       - run: cargo run --release --locked -- build
+      - run: |
+          cp site/data/manifest.json target/manifest-baseline.json
+          cargo run --release --locked -- build
+          cmp target/manifest-baseline.json site/data/manifest.json
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

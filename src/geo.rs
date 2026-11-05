@@ -217,9 +217,8 @@ fn split(fs_: &mut [Value]) {
 }
 
 /// Fetch every layer and write `data/processed/geo/*.json`. Raw chunks are cached.
-pub fn run(root: &Path) -> Result<(), E> {
-    let out = root.join("data/processed/geo");
-    fs::create_dir_all(&out)?;
+pub fn run(root: &Path, out: &Path) -> Result<(), E> {
+    fs::create_dir_all(out)?;
     // Label points of every feature in km, for dots and zoom targets without loading a layer.
     let mut pts = BTreeMap::new();
     for l in &LAYERS {

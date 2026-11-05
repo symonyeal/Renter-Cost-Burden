@@ -2,16 +2,16 @@
    reprojection: x east, y north in km; y is negated for SVG.
    Legend: G geometry cache by layer file; f feature {id, of, n, pr, r, c}; q quantum (m); s state;
    T thresholds; C colours; lv map level; k place id; y year; z zoom transform. */
-import { D, meas, rows, at, row, placesWith, catLabel, placeName, fmt, esc, tip, untip, spark, statusText, LEVEL_NAME } from './util.js';
+import { D, dataJson, meas, rows, at, row, placesWith, catLabel, placeName, fmt, esc, tip, untip, spark, provenance, LEVEL_NAME } from './util.js';
 import { scaleFor, colorOf } from './colors.js';
 
 const G = new Map();
 let POINTS = null;
 async function geo(name) {
-  if (!G.has(name)) G.set(name, fetch(`data/geo/${name}.json`).then(r => { if (!r.ok) throw new Error(`${name}: HTTP ${r.status}`); return r.json(); }).then(decode));
+  if (!G.has(name)) G.set(name, dataJson(`geo/${name}.json`).then(decode));
   return G.get(name);
 }
-async function points() { return POINTS ??= await fetch('data/geo/points.json').then(r => r.json()); }
+async function points() { return POINTS ??= await dataJson('geo/points.json'); }
 
 function decode(g) {
   const q = g.q / 1000;
@@ -98,8 +98,8 @@ export class AtlasMap {
       const k = f.key, r = row(m, c, k, y), rs = rows(m, c, k);
       const extra = lv === 'community' ? renters(k) : '';
       tip(e, `<b>${esc(placeName(k, true))}</b><small>${esc(LEVEL_NAME[D.P.get(k)?.level] || '')}</small>
-        <span class="v">${r && r[1] != null ? esc(fmt(m, r[1])) : 'No data'}</span> <small>${esc(me.short)}${me.cats ? ' · ' + esc(catLabel(m, c)) : ''}, ${y}${r?.[4] ? ' · ' + esc(statusText(r[4])) : ''}</small>
-        ${extra}${spark(rs, 200, 40, 'var(--accent)', y)}`);
+        <span class="v">${r && r[1] != null ? esc(fmt(m, r[1])) : 'No data'}</span> <small>${esc(me.short)}${me.cats ? ' · ' + esc(catLabel(m, c)) : ''}, ${y}</small>
+        ${provenance(r)}${extra}${spark(rs, 200, 40, 'var(--accent)', y)}`);
     };
     // Base: provinces in neutral, so metro and community layers sit on a map of Canada.
     const baseFs = lv === 'province' ? [] : lv === 'community' ? prov.features.filter(f => f.pr === pr) : prov.features;

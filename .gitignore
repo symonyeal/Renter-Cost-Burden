@@ -8,3 +8,5 @@ qa/browser.json
 target/
 *.pending
 site/data/
+data/.writer.lock
+data/processed/.staging-*
