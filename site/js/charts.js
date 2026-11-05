@@ -1,7 +1,7 @@
 /* D3 chart forms. Every mark colour is a var() string so a theme toggle re-colours without redrawing.
    Legend: el container; W width; H height; M margins; x/y scales; s series {k, name, color, rows}; r row
    [year, value, lower, upper, status]; m measure (formatting); h hover handler; dash dashed for gaps. */
-import { fmt, esc, tip, untip, width } from './util.js';
+import { fmt, esc, tip, untip, width, provenance } from './util.js';
 import { scaleFor, colorOf, legend } from './colors.js';
 
 const M = { t: 12, r: 120, b: 28, l: 52 };
@@ -61,7 +61,7 @@ export function lines(el, series, m, { H = 320, zero = false, yLabel = '', dots 
       const [px] = d3.pointer(e), yr = yrs[d3.minIndex(yrs, v => Math.abs(x(v) - px))];
       cross.attr('x1', x(yr)).attr('x2', x(yr)).attr('opacity', 0.6);
       const lines_ = series.map(s => [s, s.rows.find(r => r[0] === yr)]).filter(([, r]) => r && r[1] != null).sort((a, b) => b[1][1] - a[1][1]);
-      tip(e, `<b>${yr}</b>` + lines_.map(([s, r]) => `<div><span style="color:${s.color}">■</span> ${esc(s.name)} <strong>${esc(fmt(m, r[1]))}</strong>${r[2] != null && r[3] != null ? ` <small>${esc(fmt(m, r[2]))}–${esc(fmt(m, r[3]))}</small>` : ''}</div>`).join(''));
+      tip(e, `<b>${yr}</b>` + lines_.map(([s, r]) => `<div><span style="color:${s.color}">■</span> ${esc(s.name)} <strong>${esc(fmt(m, r[1]))}</strong>${r[2] != null && r[3] != null ? ` <small>${esc(fmt(m, r[2]))}–${esc(fmt(m, r[3]))}</small>` : ''}${provenance(r)}</div>`).join(''));
     })
     .on('pointerleave', () => { cross.attr('opacity', 0); untip(); });
   return true;
@@ -89,7 +89,7 @@ export function heat(el, rowsData, years, colorOf, m, { onRow, cellH = 14, label
     d3.select(this).selectAll('rect.cell').data(years).join('rect').attr('class', 'cell')
       .attr('x', y => x(y)).attr('width', Math.max(1, cw - 1)).attr('height', cellH - 2)
       .attr('fill', y => { const r = byY.get(y); return r && r[1] != null ? colorOf(r[1]) : 'transparent'; })
-      .on('pointermove', (e, y) => { const r = byY.get(y); tip(e, `<b>${esc(d.name)}</b><small>${y}</small><span class="v">${r && r[1] != null ? esc(fmt(m, r[1])) : 'Not published'}</span>${d.extra ? `<small>${esc(d.extra(y))}</small>` : ''}`); })
+      .on('pointermove', (e, y) => { const r = byY.get(y); tip(e, `<b>${esc(d.name)}</b><small>${y}</small><span class="v">${r && r[1] != null ? esc(fmt(m, r[1])) : 'Not published'}</span>${provenance(r)}${d.extra ? `<small>${esc(d.extra(y))}</small>` : ''}`); })
       .on('pointerleave', untip).on('click', () => onRow?.(d.k));
   });
   return sv;
@@ -171,7 +171,7 @@ export function multiples(el, panels, m, { cols = 4, H = 150, ref = 100, label =
     g.append('rect').attr('x', gx + M_.l).attr('y', gy + M_.t).attr('width', pw - M_.l - M_.r).attr('height', ph - M_.t - M_.b + 14).attr('fill', 'transparent')
       .on('pointermove', e => {
         const [px] = d3.pointer(e), yr = Math.round(xs.invert(px));
-        tip(e, `<b>${esc(p.name)} · ${yr}</b>` + p.series.map(s => { const r = s.rows.find(r => r[0] === yr); return `<div><span style="color:${s.color}">■</span> ${esc(s.name)} <strong>${r && r[1] != null ? esc(fmt(m, r[1])) : '–'}</strong></div>`; }).join(''));
+        tip(e, `<b>${esc(p.name)} · ${yr}</b>` + p.series.map(s => { const r = s.rows.find(r => r[0] === yr); return `<div><span style="color:${s.color}">■</span> ${esc(s.name)} <strong>${r && r[1] != null ? esc(fmt(m, r[1])) : '–'}</strong>${provenance(r)}</div>`; }).join(''));
       }).on('pointerleave', untip);
   });
   return sv;
@@ -261,7 +261,7 @@ export function intervals(el, rowsData, yearsC, m, { label = '' } = {}) {
       const yy = cy + off(r[0]) + off.bandwidth() / 2, c = yearsC.get(r[0]);
       if (r[2] != null && r[3] != null) sv.append('line').attr('x1', x(r[2])).attr('x2', x(r[3])).attr('y1', yy).attr('y2', yy).attr('stroke', c).attr('stroke-width', 2).attr('opacity', 0.6);
       sv.append('circle').attr('cx', x(r[1])).attr('cy', yy).attr('r', 4).attr('fill', c).attr('stroke', 'var(--surface)')
-        .on('pointermove', e => tip(e, `<b>${esc(d.name)} · ${r[0]}</b><span class="v">${esc(fmt(m, r[1]))}</span>${r[2] != null ? `<small>95% interval ${esc(fmt(m, r[2]))} to ${esc(fmt(m, r[3]))}</small>` : ''}${r[4] ? `<small>Quality ${esc(r[4])}</small>` : ''}`))
+        .on('pointermove', e => tip(e, `<b>${esc(d.name)} · ${r[0]}</b><span class="v">${esc(fmt(m, r[1]))}</span>${r[2] != null ? `<small>95% interval ${esc(fmt(m, r[2]))} to ${esc(fmt(m, r[3]))}</small>` : ''}${provenance(r)}`))
         .on('pointerleave', untip);
     }
   });

@@ -5,6 +5,8 @@ mod atlas;
 mod cache;
 mod census;
 mod compute;
+mod dataset;
+mod generation;
 mod geo;
 mod history;
 mod net;
@@ -72,13 +74,18 @@ fn fetch(r: &Path) -> Result<(), E> {
     // Population is published for both tables' Canada row; keep the first (provincial table).
     let mut seen = std::collections::BTreeSet::new();
     o.retain(|x| x.measure != "population" || seen.insert((x.place.clone(), x.year)));
-    fs::create_dir_all(r.join("data/processed"))?;
-    place::save(r, &g, &mut o)?;
+    let base = r.join("data/processed");
+    let stage = generation::Stage::new(&base)?;
+    let old = generation::resolve(&base)?;
+    copy_tree(&old.join("geo"), &stage.path().join("geo"))?;
+    place::save(stage.path(), &g, &mut o)?;
     write(
-        r.join("data/processed/sources.json"),
+        stage.path().join("sources.json"),
         &json!({"tables": s, "reconciliation": {"burden_98100252_vs_98100255": checks,
             "vacancy_metro_vs_agglomeration_table_conflicts": n}}),
     )?;
+    validate_processed(r, stage.path())?;
+    stage.commit(json!({"kind": "official tables"}))?;
     println!(
         "Wrote {} observations for {} places from {} sources",
         o.len(),
@@ -88,21 +95,62 @@ fn fetch(r: &Path) -> Result<(), E> {
     Ok(())
 }
 
+fn copy_tree(from: &Path, to: &Path) -> Result<(), E> {
+    fs::create_dir_all(to)?;
+    for e in fs::read_dir(from)? {
+        let e = e?;
+        if e.file_type()?.is_dir() {
+            copy_tree(&e.path(), &to.join(e.file_name()))?;
+        } else if e.file_type()?.is_file() {
+            fs::copy(e.path(), to.join(e.file_name()))?;
+        } else {
+            return Err("nonregular processed input".into());
+        }
+    }
+    Ok(())
+}
+
+fn validate_processed(r: &Path, dir: &Path) -> Result<dataset::Dataset, E> {
+    let (p, o) = place::load(dir)?;
+    dataset::Dataset::new(
+        p,
+        o,
+        &read(r.join("data/measures.json"))?,
+        &read(dir.join("sources.json"))?,
+        false,
+    )
+}
+
 fn main() -> Result<(), E> {
     let a: Vec<String> = std::env::args().skip(1).collect();
-    let r = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    match a.first().map(String::as_str).unwrap_or("build") {
+    let command = a.first().map(String::as_str).unwrap_or("build");
+    if matches!(command, "help" | "--help" | "-h") {
+        println!(
+            "renter-cost-burden [build | fetch | fetch-geo] [--root PATH]\nDefault root: current directory. build is offline; fetch commands retrieve official inputs."
+        );
+        return Ok(());
+    }
+    let r = match a.get(1).map(String::as_str) {
+        Some("--root") if a.len() == 3 => PathBuf::from(&a[2]),
+        None => std::env::current_dir()?,
+        _ => return Err("expected command [--root PATH]".into()),
+    };
+    let r = r.canonicalize()?;
+    let _lease = generation::Lease::acquire(&r.join("data"))?;
+    match command {
         "build" => atlas::build(&r),
         "fetch" => fetch(&r).and_then(|_| atlas::build(&r)),
-        "fetch-geo" => geo::run(&r).and_then(|_| atlas::build(&r)),
-        "help" | "--help" | "-h" => {
-            println!(
-                "renter-cost-burden [build | fetch | fetch-geo]\n\
-                build: offline; derived series and site data from data/processed\n\
-                fetch: read official tables (cached in data/raw, downloaded when missing), then build\n\
-                fetch-geo: retrieve 2021 boundaries from Statistics Canada, then build"
-            );
-            Ok(())
+        "fetch-geo" => {
+            let base = r.join("data/processed");
+            let old = generation::resolve(&base)?;
+            let stage = generation::Stage::new(&base)?;
+            for n in ["places.csv", "observations.csv", "sources.json"] {
+                fs::copy(old.join(n), stage.path().join(n))?;
+            }
+            geo::run(&r, &stage.path().join("geo"))?;
+            validate_processed(&r, stage.path())?;
+            stage.commit(json!({"kind": "2021 boundaries"}))?;
+            atlas::build(&r)
         }
         s => Err(format!("unknown command: {s}; use --help").into()),
     }

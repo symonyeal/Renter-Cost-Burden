@@ -15,6 +15,6 @@ jobs:
       # Offline build from committed data/processed; a second build must reproduce every byte.
       - run: cargo run --release --locked -- build
       - run: |
-          cp -R site/data target/site-baseline
+          cp site/data/manifest.json target/manifest-baseline.json
           cargo run --release --locked -- build
-          diff -r target/site-baseline site/data
+          cmp target/manifest-baseline.json site/data/manifest.json

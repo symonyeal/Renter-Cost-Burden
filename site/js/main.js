@@ -1,7 +1,7 @@
 /* Page wiring: state in the URL, map, comparison and the section charts.
    Legend: s state; A/L data files; k place id; ks place ids; m measure; c category; y year; F facts;
    $ element by id; sel compare selection (ordered, colour = slot). */
-import { D, load, meas, rows, at, latest, series, rebase, placesWith, cats, defCat, catLabel, placeName, regionVar, slotVar, fmt, pct, esc, spark, frame, empty, PR, REGION_ORDER, LEVEL_NAME } from './util.js';
+import { D, openData, dataUrl, meas, rows, at, latest, series, rebase, placesWith, cats, defCat, catLabel, placeName, regionVar, slotVar, fmt, pct, esc, spark, frame, empty, PR, REGION_ORDER, LEVEL_NAME } from './util.js';
 import { AtlasMap, levelsFor, LEVEL_LABEL } from './map.js';
 import { legend, colorOf } from './colors.js';
 import * as C from './charts.js';
@@ -415,8 +415,8 @@ function sources() {
 async function main() {
   theme();
   try {
-    const [A, L, provinces] = await Promise.all(['data/atlas.json', 'data/local.json', 'provinces.json'].map(u => fetch(u).then(r => { if (!r.ok) throw new Error(`${u}: HTTP ${r.status}`); return r.json(); })));
-    load(A, L, provinces);
+    await openData();
+    document.querySelectorAll('.downloads a[href^="data/"]').forEach(a => a.setAttribute('href', dataUrl(a.getAttribute('href').slice(5))));
   } catch (e) { $('status').textContent = `The data could not be loaded (${e.message}). Reload to retry.`; return; }
   F = D.A.facts;
   readUrl();

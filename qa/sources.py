@@ -7,6 +7,8 @@ Legend: o observations keyed (measure, cat, place, year); k place id; n compared
 
 import csv
 import io
+import json
+import hashlib
 import sys
 import zipfile
 from pathlib import Path
@@ -39,8 +41,16 @@ def rows(t):
 
 
 def main():
+    processed = ROOT / "data/processed"
+    if (processed / "manifest.json").exists():
+        manifest = json.loads((processed / "manifest.json").read_text(encoding="utf-8"))
+        generation = manifest["generation"]
+        assert manifest["schema"] == 3 and len(generation) == 64 and all(c in "0123456789abcdef" for c in generation)
+        processed = processed / "generations" / generation
+        for name in ["observations.csv", "places.csv", "sources.json"]:
+            assert hashlib.sha256((processed / name).read_bytes()).hexdigest() == manifest["sha256"][name]
     o = {}
-    with open(ROOT / "data/processed/observations.csv", encoding="utf-8") as f:
+    with open(processed / "observations.csv", encoding="utf-8") as f:
         for r in csv.DictReader(f):
             o[(r["measure"], r["cat"], r["place"], int(r["year"]))] = r
     n, bad = 0, []
@@ -87,7 +97,7 @@ def main():
     # The Daily comparison: 110 published cells.
     text = (RAW / "census-comparison-2016-2021.csv").read_bytes().decode("utf-8-sig")
     names = {}
-    with open(ROOT / "data/processed/places.csv", encoding="utf-8") as f:
+    with open(processed / "places.csv", encoding="utf-8") as f:
         for p in csv.DictReader(f):
             if p["level"] in ("country", "province", "territory", "metro"):
                 names.setdefault(p["name"].replace("–", "-"), p["id"])
