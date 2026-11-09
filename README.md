@@ -1,56 +1,30 @@
 # Renter Cost Burden
 
-[Open the atlas](https://symonyeal.github.io/Renter-Cost-Burden/)
+[Open the atlas](https://symonyeal.github.io/Renter-Cost-Burden/). Findings are on the site; this file covers the question, the measures and how to build it.
 
-The atlas compares renter shelter costs across Canadian provinces, territories, metropolitan areas and 5,161 communities. Measures come from Statistics Canada and CMHC.
+## Problem
 
-## Findings
+- The atlas compares renter shelter costs across Canadian provinces, territories, metropolitan areas and 5,161 communities.
+- Measures come from Statistics Canada and CMHC.
 
-- In 2021, 33.2% of renter households spent at least 30% of income on shelter, down from 40.0% in 2016. Census 2021 measured 2020 income, which included pandemic benefits; some of the decline reflects temporary income support rather than lower housing costs.
-- From 2000 to 2025, the CPI rent index, which tracks the same rental units, rose 68.6%, compared with 72.1% for all consumer prices. Average two-bedroom rents in the CMHC survey rose faster: by 31% more than prices from 2015 to 2025 in the median of 40 metro areas, in 2025 dollars, as newer and more expensive units entered the stock.
-- In 2025, two-bedroom rents rose more than 5% in 24 of the 40 metro areas with a published change. Vancouver had the highest metro rent at $2,364; Canmore, Alberta, an agglomeration, was higher at $2,438.
-- Core housing need affected 22.0% of renter households in the ten provinces in 2024, unchanged from 2018. Rates were highest in Saskatchewan and British Columbia (29%) and lowest in Quebec (13.7%). Core housing need also requires that the home be unaffordable, crowded or in poor repair, with no acceptable local option costing under 30% of income.
-- In 2021, 77% of renter households with $10,000–20,000 income spent at least 30% on shelter, compared with 2.5% of those with $100,000 or more. The share was 45.3% for people living alone, the highest household-type rate.
-- Canada recorded 6.2 housing starts per 1,000 residents in 2025, compared with 11.9 in 1973. Apartments were 66% of starts in 2025, up from 24% in 1995.
+## Measures and limits
 
-## Definitions and limits
-
-Each measure keeps its own population and period. The 30% burden rate comes from the
-Census and covers renter households with income above zero. Core housing need comes from the
-Canadian Housing Survey and covers the ten provinces only. Average rent and vacancy come from
-CMHC's survey of purpose-built rental buildings with three or more units. The CPI rent index
-follows the same units over time. These describe different things, so the site never divides
-one by another or presents one as another. A median rent divided by a median income is not a
-burden rate, and the site does not compute one.
-
-Census years are 2016 and 2021, and Housing Survey years are 2018,
-2021, 2022 and 2024. Charts show those years as separate points and draw nothing between them.
-Cells that Statistics Canada suppressed stay empty, with their status flag shown on hover.
-
-Census counts are randomly rounded to multiples
-of five, and small counts can round to zero. A community with 55 renter households can show
-0% burdened even when some households are burdened. The community map shows every community. The
-ranking, the colour scale and the strip chart use only those with 250 or more renter households,
-and every tooltip gives the renter count.
-
-Burden for Canada, provinces and metro areas comes
-from table 98-10-0252. Burden for census divisions and communities comes from 98-10-0255. The
-build checks that both give the same provincial rates to within rounding. That check showed
-98-10-0252 excludes households on reserve, so the community table is read the same way.
-
-Real rents use the all-items CPI of
-the centre's province, in 2025 dollars. Where a province's CPI is not published for a year, the
-real rent for that year is left empty.
-
-Sources publish codes from the 2006,
-2011, 2016 and 2021 Censuses. The atlas drops the vintage and keeps the code (Toronto is
-`m-535` in every table). Each value records which vintage it came from, because survey areas
-are redrawn after each Census. Two sources needed repair. The Housing Survey table writes
-St. John's code without its leading zeros, and some CMHC centres have no code at all; those
-centres keep a source-specific id so they are never matched by name to a different area.
-
-The full definitions, universes and caveats for every measure are in
-[docs/METHODS.md](docs/METHODS.md) and in the Sources section of the site.
+- Each measure keeps its own population and period.
+- The 30% burden rate comes from the Census and covers renter households with income above zero.
+- Core housing need comes from the Canadian Housing Survey and covers the ten provinces only. It also requires that the home be unaffordable, crowded or in poor repair, with no acceptable local option costing under 30% of income.
+- Average rent and vacancy come from CMHC's survey of purpose-built rental buildings with three or more units.
+- The CPI rent index follows the same units over time.
+- These describe different things, so the site never divides one by another or presents one as another. A median rent divided by a median income is not a burden rate, and the site does not compute one.
+- Census years are 2016 and 2021. Housing Survey years are 2018, 2021, 2022 and 2024. Charts show those years as separate points and draw nothing between them.
+- Census 2021 measured 2020 income, which included pandemic benefits.
+- Cells that Statistics Canada suppressed stay empty, with their status flag shown on hover.
+- Census counts are randomly rounded to multiples of five, and small counts can round to zero. A community with 55 renter households can show 0% burdened even when some households are burdened.
+- The community map shows every community. The ranking, the colour scale and the strip chart use only communities with 250 or more renter households, and every tooltip gives the renter count.
+- Burden for Canada, provinces and metro areas comes from table 98-10-0252. Burden for census divisions and communities comes from 98-10-0255. The build checks that both give the same provincial rates to within rounding. That check showed 98-10-0252 excludes households on reserve, so the community table is read the same way.
+- Real rents use the all-items CPI of the centre's province, in 2025 dollars. Where a province's CPI is not published for a year, the real rent for that year is left empty.
+- Sources publish codes from the 2006, 2011, 2016 and 2021 Censuses. The atlas drops the vintage and keeps the code (Toronto is `m-535` in every table). Each value records which vintage it came from, because survey areas are redrawn after each Census.
+- Two sources needed repair. The Housing Survey table writes St. John's code without its leading zeros, and some CMHC centres have no code at all; those centres keep a source-specific id so they are never matched by name to a different area.
+- Full definitions, universes and caveats for every measure: [docs/METHODS.md](docs/METHODS.md) and the Sources section of the site.
 
 ## Sources
 
@@ -70,12 +44,9 @@ The full definitions, universes and caveats for every measure are in
 
 Data: Statistics Canada and CMHC, Open Government Licence – Canada.
 
-## Pipeline and files
+## Execution
 
-The pipeline is Rust. `cargo run --release --locked -- build` works offline: it reads the
-accepted files in `data/processed/` and publishes an immutable generation under `site/data/`.
-The root defaults to the current directory; a moved executable can use `build --root PATH`.
-Processed CSVs pass the same measure and cell validation on fetch and offline build.
+The pipeline is Rust. `cargo run --release --locked -- build` works offline: it reads the accepted files in `data/processed/` and publishes an immutable generation under `site/data/`. The root defaults to the current directory; a moved executable can use `build --root PATH`. Processed CSVs pass the same measure and cell validation on fetch and offline build.
 
 ```text
 cargo run --release --locked -- build      # offline: derived series, headline facts, site data
@@ -102,14 +73,15 @@ python qa/browser.py                       # browser checks (pip install -r requ
 | `site/` | The atlas: D3 7.9.0, no build step |
 | `site/js/colors.js`, `site/js/charts.js` | Shared classification and legends; chart forms and complete heat-chart assembly |
 
-Raw downloads go to `data/raw/` and are not committed. `site/data/` is generated by the build,
-locally and on GitHub Pages. `manifest.json` selects `generations/<id>/`; the browser pins that
-generation for JSON, geometry, province metadata and downloads. Each file is hashed; the generation
-identity also covers processed inputs, measure metadata and the executable's embedded source identity.
-Fetch and geometry refresh stage complete processed generations before changing their manifest.
-Previous generations and failed stages remain available for recovery. The writer lease prevents
-overlapping commands in one root. Atomic visibility is provided; power-loss durability is not claimed.
+Build output:
 
-The registered 30-county US forecasting study that this repository held until October 2026 is
-preserved at the git tag
-[`us-county-study`](https://github.com/symonyeal/Renter-Cost-Burden/tree/us-county-study).
+- Raw downloads go to `data/raw/` and are not committed.
+- `site/data/` is generated by the build, locally and on GitHub Pages.
+- `manifest.json` selects `generations/<id>/`; the browser pins that generation for JSON, geometry, province metadata and downloads.
+- Each file is hashed. The generation identity also covers processed inputs, measure metadata and the executable's embedded source identity.
+- Fetch and geometry refresh stage complete processed generations before changing their manifest.
+- Previous generations and failed stages remain available for recovery.
+- The writer lease prevents overlapping commands in one root.
+- Atomic visibility is provided; power-loss durability is not claimed.
+
+The registered 30-county US forecasting study that this repository held until October 2026 is preserved at the git tag [`us-county-study`](https://github.com/symonyeal/Renter-Cost-Burden/tree/us-county-study).
